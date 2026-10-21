@@ -82,7 +82,26 @@
     }
     @media(prefers-reduced-motion:reduce){.gba-stage canvas{scroll-behavior:auto}}
   
-</style>
+
+    /* Arcadia 1.6.5: prevent zero/negative canvas width on mobile viewport units. */
+    .gba-stage canvas{display:block;flex:none;height:auto;aspect-ratio:3/2;max-width:100%;max-height:100%;}
+    @media(max-width:899px){
+      .gba-modal{min-height:0;min-height:100vh;min-height:100dvh;}
+      .gba-stage{width:100%;min-width:0;min-height:0;flex:1 1 auto;}
+      .gba-stage canvas{width:min(100%,calc((100vh - 250px)*1.5));width:min(100%,calc((100dvh - 250px)*1.5));max-height:100%;}
+    }
+    @media(max-width:600px) and (orientation:portrait){
+      .gba-modal{padding:6px;gap:6px;}
+      .gba-head{flex-shrink:0;}
+      .gba-stage{min-height:120px;}
+      .gba-stage canvas{width:100%;height:auto;max-height:100%;}
+      #gbaPad{flex-shrink:0;}
+    }
+    @media(orientation:landscape) and (pointer:coarse){
+      .gba-modal{padding:4px;gap:4px;}
+      .gba-stage canvas{width:min(100%,calc((100dvh - 30px)*1.5))!important;max-height:100%!important;}
+    }
+    </style>
   <style id="nes-display-tuning">
     /* Keep the NES picture crisp and proportional while enlarging it to the available play area. */
     .session-window{position:relative}

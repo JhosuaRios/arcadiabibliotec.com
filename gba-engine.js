@@ -7,7 +7,7 @@
 (() => {
   'use strict';
   const GBA_W = 240, GBA_H = 160;
-  const DB_NAME = 'arcadia-gba', STORE = 'saves';
+  const DB_NAME = 'arcadia-gba', DB_VERSION = 2, STORE = 'saves';
 
   /* ── Guardados de batería (SRAM/Flash/EEPROM) en IndexedDB, con copia en memoria ── */
   const memorySaves = new Map();
@@ -16,10 +16,11 @@
     if (dbPromise) return dbPromise;
     dbPromise = new Promise(resolve => {
       try {
-        const req = indexedDB.open(DB_NAME, 1);
+        const req = indexedDB.open(DB_NAME, DB_VERSION);
         req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE); };
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => resolve(null);
+        req.onsuccess = () => { const db = req.result; db.onversionchange = () => { try { db.close(); } catch {} }; resolve(db); };
+        req.onerror = () => { console.warn('[Arcadia GBA] IndexedDB no disponible; se usará memoria temporal.', req.error); resolve(null); };
+        req.onblocked = () => { console.warn('[Arcadia GBA] Actualización de guardados bloqueada por otra pestaña.'); resolve(null); };
       } catch { resolve(null); }
     });
     return dbPromise;
@@ -29,7 +30,8 @@
     if (!db) return memorySaves.get(key) || null;
     return new Promise(resolve => {
       try {
-        const req = db.transaction(STORE).objectStore(STORE).get(key);
+        if (!db.objectStoreNames.contains(STORE)) { resolve(memorySaves.get(key) || null); return; }
+        const req = db.transaction(STORE, 'readonly').objectStore(STORE).get(key);
         req.onsuccess = () => resolve(req.result || null);
         req.onerror = () => resolve(memorySaves.get(key) || null);
       } catch { resolve(memorySaves.get(key) || null); }
@@ -41,6 +43,7 @@
     if (!db) return;
     try {
       await new Promise(resolve => {
+        if (!db.objectStoreNames.contains(STORE)) return;
         const tx = db.transaction(STORE, 'readwrite');
         tx.objectStore(STORE).put(value, key);
         tx.oncomplete = () => resolve(true);
@@ -52,7 +55,7 @@
     memorySaves.delete(key);
     const db = await openDb();
     if (!db) return;
-    try { db.transaction(STORE, 'readwrite').objectStore(STORE).delete(key); } catch {}
+    try { if (db.objectStoreNames.contains(STORE)) db.transaction(STORE, 'readwrite').objectStore(STORE).delete(key); } catch {}
   }
 
   /* ── Vídeo: el núcleo entrega RGB 240×160; se pinta en el siguiente fotograma de pantalla ── */

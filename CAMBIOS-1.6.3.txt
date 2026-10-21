@@ -6,3 +6,8 @@ Arcadia Web 1.6.3 — Ajustes de pantalla y controles GBA
 - Añade contención de layout/pintado al escenario para limitar trabajo de renderizado fuera de su área.
 
 Nota: no se puede garantizar 60 FPS estables en todos los equipos; depende del hardware, navegador, ahorro de energía y carga del sistema. Validaciones realizadas: estructura del ZIP, sintaxis básica de archivos fuente y rutas estáticas. No se realizó prueba real de navegador ni de dispositivos físicos.
+
+Arcadia Web 1.6.5 — corrección de pantalla móvil y robustez de guardados GBA.
+- Reglas responsive para evitar que el canvas quede con ancho cero en móviles.
+- IndexedDB de guardados actualizado a versión 2, comprobación del almacén y cierre ante cambios de versión.
+- Si IndexedDB no está disponible, los guardados quedan solo en memoria durante esa sesión; no se presenta como persistencia permanente.
