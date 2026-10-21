@@ -1,0 +1,8 @@
+ARCADIA WEB 1.6.4 — Correcciones GBA Android, guardados y audio
+
+- Controles táctiles: manejo Pointer Events con captura en el botón y fallback Touch Events para WebViews Android; libera teclas al cancelar/perder captura.
+- Guardados de batería: escritura IndexedDB espera el resultado de la transacción y crea el almacén de forma segura. El guardado depende de que el núcleo/ROM emita sus datos de batería.
+- Audio GBA: volumen inicial reducido al 32% y compresor para controlar picos fuertes.
+- Conserva el diseño adaptable y la posición de L/R de la versión 1.6.3.
+
+Validación realizada: sintaxis JS y estructura ZIP. No se ha validado en un dispositivo Android físico ni se garantiza 60 FPS en todos los equipos.

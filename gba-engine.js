@@ -17,7 +17,7 @@
     dbPromise = new Promise(resolve => {
       try {
         const req = indexedDB.open(DB_NAME, 1);
-        req.onupgradeneeded = () => req.result.createObjectStore(STORE);
+        req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE); };
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => resolve(null);
       } catch { resolve(null); }
@@ -39,7 +39,14 @@
     memorySaves.set(key, value);
     const db = await openDb();
     if (!db) return;
-    try { db.transaction(STORE, 'readwrite').objectStore(STORE).put(value, key); } catch {}
+    try {
+      await new Promise(resolve => {
+        const tx = db.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).put(value, key);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = tx.onabort = () => resolve(false);
+      });
+    } catch {}
   }
   async function saveDelete(key) {
     memorySaves.delete(key);
@@ -81,7 +88,7 @@
   /* ── Audio: cola de buffers programados con WebAudio (sin Workers; la reproducción no depende del hilo principal) ── */
   class Sound {
     constructor() {
-      this.ctx = null; this.gain = null; this.volume = 1; this.muted = false;
+      this.ctx = null; this.gain = null; this.limiter = null; this.volume = 0.32; this.muted = false;
       this.channels = 2; this.rate = 44100; this.nextTime = 0; this.registered = false;
     }
     ensureContext() {
@@ -91,7 +98,15 @@
       try {
         this.ctx = new Ctx({ latencyHint: 'interactive' });
         this.gain = this.ctx.createGain();
-        this.gain.connect(this.ctx.destination);
+        // Keep harsh GBA samples below full-scale; compressor catches sudden peaks.
+        this.limiter = this.ctx.createDynamicsCompressor();
+        this.limiter.threshold.value = -10;
+        this.limiter.knee.value = 8;
+        this.limiter.ratio.value = 8;
+        this.limiter.attack.value = 0.003;
+        this.limiter.release.value = 0.12;
+        this.gain.connect(this.limiter);
+        this.limiter.connect(this.ctx.destination);
         this.applyVolume();
       } catch { this.ctx = null; return false; }
       return true;
@@ -132,7 +147,7 @@
       const secs = Math.max(0, this.nextTime - this.ctx.currentTime);
       return Math.floor(secs * this.rate) * this.channels;
     }
-    destroy() { try { this.ctx?.close?.(); } catch {} this.ctx = null; this.gain = null; }
+    destroy() { try { this.ctx?.close?.(); } catch {} this.ctx = null; this.gain = null; this.limiter = null; }
   }
 
   async function fetchBios(url) {

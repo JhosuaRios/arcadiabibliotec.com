@@ -988,7 +988,7 @@ async function loadGbaRom(file, persist=true){
     await ensureGbaCore();
     const bytes=new Uint8Array(await file.arrayBuffer());
     const engine=await window.ArcadiaGBA.create(canvas,{biosUrl:await (async()=>{for(const u of ['vendor/gba/bios.bin','bios.bin','/vendor/gba/bios.bin']){try{const r=await fetch(u,{method:'HEAD'});if(r.ok)return u;}catch{}}return 'vendor/gba/bios.bin';})(),saveKeyPrefix:'rom:'+file.name.replace(/\.[^.]+$/,'')+':',onSpeed:pct=>{if(gbaEngine&&pct)$('#gbaStatus').textContent='GBA · '+file.name+' · '+Math.round(pct)+'%';}});
-    gbaEngine=engine; engine.load(bytes); engine.start(); engine.sound.resume(); if($('#gbaPause')){$('#gbaPause').dataset.p='';$('#gbaPause').textContent='⏸ Pausa';}
+    gbaEngine=engine; engine.setVolume(Number($('#gbaVolume')?.value||32)/100); engine.load(bytes); engine.start(); engine.sound.resume(); if($('#gbaPause')){$('#gbaPause').dataset.p='';$('#gbaPause').textContent='⏸ Pausa';}
     $('#gbaStatus').textContent='GBA · '+file.name;
     if(matchMedia('(pointer:coarse)').matches)$('#gbaPad').classList.add('show');
   }catch(error){
@@ -1000,10 +1000,19 @@ async function loadGbaRom(file, persist=true){
   const pad=$('#gbaPad'); if(!pad)return;
   const press=(btn,on)=>{const k=+btn.dataset.k; btn.classList.toggle('on',on); if(gbaEngine){on?gbaEngine.keyDown(k):gbaEngine.keyUp(k);} if(on&&navigator.vibrate)try{navigator.vibrate(8)}catch{}};
   const active=new Map();
-  pad.addEventListener('pointerdown',e=>{const b=e.target.closest('button[data-k]');if(!b)return;e.preventDefault();try{pad.setPointerCapture(e.pointerId)}catch{} active.set(e.pointerId,b);press(b,true);});
-  pad.addEventListener('pointermove',e=>{if(!active.has(e.pointerId))return;const el=document.elementFromPoint(e.clientX,e.clientY)?.closest?.('button[data-k]');const cur=active.get(e.pointerId);if(el&&el!==cur&&pad.contains(el)){press(cur,false);active.set(e.pointerId,el);press(el,true);}});
-  const up=e=>{const b=active.get(e.pointerId);if(b){press(b,false);active.delete(e.pointerId);}};
-  pad.addEventListener('pointerup',up);pad.addEventListener('pointercancel',up);
+  const begin=(id,btn,e)=>{if(!btn||active.has(id))return;e?.preventDefault?.();active.set(id,btn);press(btn,true);};
+  const finish=(id)=>{const btn=active.get(id);if(btn){press(btn,false);active.delete(id);}};
+  // Pointer Events for modern browsers. Do not capture on the parent: on some Android WebViews
+  // that redirects subsequent events away from the actual button and leaves keys stuck.
+  pad.addEventListener('pointerdown',e=>{const b=e.target.closest('button[data-k]');if(!b)return;begin(e.pointerId,b,e);try{b.setPointerCapture(e.pointerId)}catch{}},{passive:false});
+  pad.addEventListener('pointermove',e=>{if(!active.has(e.pointerId))return;const el=document.elementFromPoint(e.clientX,e.clientY)?.closest?.('button[data-k]');const cur=active.get(e.pointerId);if(el&&el!==cur&&pad.contains(el)){finish(e.pointerId);begin(e.pointerId,el,e);}},{passive:false});
+  pad.addEventListener('pointerup',e=>finish(e.pointerId));pad.addEventListener('pointercancel',e=>finish(e.pointerId));pad.addEventListener('lostpointercapture',e=>finish(e.pointerId));
+  // Touch fallback for older Android browsers/WebViews where Pointer Events are incomplete.
+  if(!window.PointerEvent){
+    pad.addEventListener('touchstart',e=>{for(const t of e.changedTouches){const b=document.elementFromPoint(t.clientX,t.clientY)?.closest?.('button[data-k]');if(b&&pad.contains(b))begin('t'+t.identifier,b,e);}},{passive:false});
+    pad.addEventListener('touchend',e=>{for(const t of e.changedTouches)finish('t'+t.identifier);},{passive:false});
+    pad.addEventListener('touchcancel',e=>{for(const t of e.changedTouches)finish('t'+t.identifier);},{passive:false});
+  }
   const gbaOpen=()=>!!($('#gbaModal')?.classList.contains('open'));
   const wake=()=>{if(gbaEngine)gbaEngine.sound.resume();};
   document.addEventListener('pointerdown',wake,true);
@@ -1039,6 +1048,7 @@ $('#gbaChooseBig')?.addEventListener('click',()=>$('#gbaRomInput').click());
 $('#gbaRomInput')?.addEventListener('change',event=>{loadGbaRom(event.target.files?.[0]);event.target.value='';});
 $('#gbaExit')?.addEventListener('click',closeGbaPlayer);
 $('#gbaPause')?.addEventListener('click',()=>{if(!gbaEngine)return;const b=$('#gbaPause');if(b.dataset.p==='1'){gbaEngine.resume();b.dataset.p='';b.textContent='⏸ Pausa';}else{gbaEngine.pause();gbaEngine.releaseAll();b.dataset.p='1';b.textContent='▶ Seguir';}});
+$('#gbaVolume')?.addEventListener('input',event=>{if(gbaEngine)gbaEngine.setVolume(Number(event.target.value)/100);});
 $('#gbaMute')?.addEventListener('click',()=>{if(!gbaEngine)return;const b=$('#gbaMute');const m=b.dataset.m!=='1';gbaEngine.setMuted(m);gbaEngine.sound.resume();b.dataset.m=m?'1':'';b.textContent=m?'🔇 Silencio':'🔊 Sonido';});
 $('#gbaReset')?.addEventListener('click',()=>{if(gbaEngine){gbaEngine.restart();gbaEngine.start();}});
 $('#gbaFullscreen')?.addEventListener('click',()=>{const target=$('#gbaModal');if(!document.fullscreenElement)target.requestFullscreen?.().catch(()=>{});else document.exitFullscreen?.();});

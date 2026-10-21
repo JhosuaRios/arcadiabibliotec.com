@@ -57,6 +57,15 @@
 .nes-touch-controls[data-control-mode="buttons"] .nes-system-buttons{position:absolute;right:4%;left:auto;top:auto;bottom:2%;transform:none}
 
 
+    /* Arcadia 1.6.4: reliable mobile touch hit targets */
+    .gba-volume-label{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#d8d0ff;white-space:nowrap}.gba-volume-label input{width:76px;accent-color:#a99aff;touch-action:pan-x}@media(max-width:600px){.gba-volume-label input{width:56px}}
+    #gbaPad{z-index:130;position:relative;isolation:isolate;touch-action:none;-webkit-user-select:none;user-select:none}
+    #gbaPad.show{display:block;pointer-events:auto}
+    #gbaPad button{pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;position:absolute;z-index:2}
+    @media (orientation:landscape) and (pointer:coarse){#gbaPad{pointer-events:none}#gbaPad button{pointer-events:auto}}
+    @media (orientation:portrait) and (pointer:coarse){#gbaPad{height:clamp(180px,27dvh,230px);flex:0 0 auto}#gbaPad .sh{top:24px!important}}
+    @media (orientation:landscape) and (pointer:coarse){#gbaPad .sh{top:clamp(46px,9dvh,72px)!important}}
+    
     /* Arcadia 1.6.3: responsive GBA viewport and less intrusive shoulder buttons */
     .gba-stage{contain:layout paint;}
     .gba-stage canvas{width:min(100%,calc((100dvh - 190px)*1.5));max-width:100%;max-height:100%;height:auto;object-fit:contain;}

@@ -50,6 +50,15 @@
 .gba-modal:fullscreen{background:#0b0720}
 .gba-launch{background:linear-gradient(145deg,#354c86,#1c2947)!important}
   
+    /* Arcadia 1.6.4: reliable mobile touch hit targets */
+    .gba-volume-label{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#d8d0ff;white-space:nowrap}.gba-volume-label input{width:76px;accent-color:#a99aff;touch-action:pan-x}@media(max-width:600px){.gba-volume-label input{width:56px}}
+    #gbaPad{z-index:130;position:relative;isolation:isolate;touch-action:none;-webkit-user-select:none;user-select:none}
+    #gbaPad.show{display:block;pointer-events:auto}
+    #gbaPad button{pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;position:absolute;z-index:2}
+    @media (orientation:landscape) and (pointer:coarse){#gbaPad{pointer-events:none}#gbaPad button{pointer-events:auto}}
+    @media (orientation:portrait) and (pointer:coarse){#gbaPad{height:clamp(180px,27dvh,230px);flex:0 0 auto}#gbaPad .sh{top:24px!important}}
+    @media (orientation:landscape) and (pointer:coarse){#gbaPad .sh{top:clamp(46px,9dvh,72px)!important}}
+    
     /* Arcadia 1.6.3: responsive GBA viewport and less intrusive shoulder buttons */
     .gba-stage{contain:layout paint;}
     .gba-stage canvas{width:min(100%,calc((100dvh - 190px)*1.5));max-width:100%;max-height:100%;height:auto;object-fit:contain;}
@@ -178,7 +187,7 @@
   <script src="vendor/jsnes.min.js"></script>
   <script src="web-bridge.js"></script>
   <section class="gba-modal" id="gbaModal" role="dialog" aria-modal="true" aria-labelledby="gbaTitle">
-    <div class="gba-head"><h2 id="gbaTitle"><span class="gba-badge">GBA</span> Game Boy Advance</h2><button class="btn primary" id="gbaChoose">＋ Cargar ROM</button><button class="btn" id="gbaPause">⏸ Pausa</button><button class="btn" id="gbaMute">🔊 Sonido</button><button class="btn" id="gbaReset">↻ Reiniciar</button><button class="btn" id="gbaFullscreen">⛶ Pantalla completa</button><button class="btn danger" id="gbaExit">Salir</button><input class="gba-picker" id="gbaRomInput" type="file" accept=".gba,.bin,application/octet-stream" /></div>
+    <div class="gba-head"><h2 id="gbaTitle"><span class="gba-badge">GBA</span> Game Boy Advance</h2><button class="btn primary" id="gbaChoose">＋ Cargar ROM</button><button class="btn" id="gbaPause">⏸ Pausa</button><button class="btn" id="gbaMute">🔊 Sonido</button><label class="gba-volume-label" for="gbaVolume" title="Volumen del juego">Vol. <input id="gbaVolume" type="range" min="0" max="100" value="32" step="1" aria-label="Volumen del juego"></label><button class="btn" id="gbaReset">↻ Reiniciar</button><button class="btn" id="gbaFullscreen">⛶ Pantalla completa</button><button class="btn danger" id="gbaExit">Salir</button><input class="gba-picker" id="gbaRomInput" type="file" accept=".gba,.bin,application/octet-stream" /></div>
     <p class="gba-help">Emulador GBA propio de Arcadia: funciona sin conexión y sin CDN. Elige tu ROM (.gba) una vez; se guarda en este navegador, igual que tu partida (batería). No se incluyen ROMs. Teclado: flechas, X=A, Z=B, A=L, S=R, Enter=Start, Shift=Select.</p>
     <div class="gba-stage" id="gbaStage"><div class="gba-empty" id="gbaEmpty"><strong>Tu próxima aventura portátil</strong><p>Carga tu archivo .gba para iniciar el emulador de Arcadia.</p><button class="btn primary" id="gbaChooseBig">Elegir archivo de juego</button></div></div>
     <div class="gba-pad" id="gbaPad" aria-label="Controles táctiles GBA"><button class="sh L" data-k="9">L</button><button class="sh R" data-k="8">R</button><button class="d u" data-k="6">▲</button><button class="d l" data-k="5">◀</button><button class="d r" data-k="4">▶</button><button class="d dn" data-k="7">▼</button><button class="b" data-k="1">B</button><button class="a" data-k="0">A</button><button class="sm sel" data-k="2">SELECT</button><button class="sm sta" data-k="3">START</button></div>
