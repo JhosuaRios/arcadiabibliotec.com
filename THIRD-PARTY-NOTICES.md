@@ -23,6 +23,14 @@ Arcadia muestra una ilustración local de muestra inspirada en Super Mario Bros.
 
 
 
-## EmulatorJS (carga remota opcional para Game Boy Advance)
+## IodineGBA (núcleo GBA incluido en vendor/gba/iodine-gba.min.js)
 
-La versión 1.5.0 carga el reproductor EmulatorJS desde `https://cdn.emulatorjs.org/stable/data/` únicamente cuando el usuario abre el apartado GBA. El código de EmulatorJS y sus núcleos no se distribuyen dentro de este ZIP; se sirven desde su CDN y están sujetos a las licencias y avisos del proyecto correspondiente. Proyecto: https://github.com/EmulatorJS/EmulatorJS. El usuario debe aportar sus propios archivos de juego; Arcadia no incluye ROMs ni BIOS.
+MIT License. Copyright (C) 2012-2019 Grant Galitz. https://github.com/taisel/IodineGBA
+
+## Cult-of-GBA BIOS (vendor/gba/bios.bin)
+
+BIOS libre de GBA. MIT License. Copyright (c) 2020-2021 DenSinH and fleroviux. https://github.com/Cult-of-GBA/BIOS
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files, to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the above copyright notices and this permission notice being included in all copies. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+
+Arcadia no incluye ROMs comerciales; el usuario aporta las suyas.

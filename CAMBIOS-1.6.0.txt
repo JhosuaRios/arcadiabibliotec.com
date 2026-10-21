@@ -1,0 +1,6 @@
+Arcadia 1.6.0 - Emulador GBA propio
+- Nuevo núcleo GBA (IodineGBA, MIT) + BIOS libre (Cult-of-GBA, MIT) incluidos en vendor/gba/. Sin CDN, funciona offline.
+- Controles táctiles L/R/A/B/cruceta/Start/Select, teclado y ocultado de táctiles al usar teclado.
+- Partidas guardadas por juego en IndexedDB. ROM recordada como en 1.5.5.
+- Diseño morado propio para GBA. Solo .gba (sin .zip).
+Límites: probado solo con ROMs de prueba en Chromium; rendimiento en móviles por verificar.

@@ -955,30 +955,57 @@ async function openGbaPlayer(gameName='',autoRestore=true){
   }
   $('#gbaStatus').textContent=gameName ? `Selecciona tu ROM .gba de ${gameName} la primera vez.` : 'Elige una ROM .gba para empezar.';
 }
+let gbaEngine=null, gbaLoading=null, gbaKeyMap={ArrowRight:4,ArrowLeft:5,ArrowUp:6,ArrowDown:7,x:0,X:0,z:1,Z:1,Enter:3,Shift:2,s:8,S:8,a:9,A:9};
+function loadScriptOnce(src){return new Promise((res,rej)=>{const t=document.createElement('script');t.src=src;t.onload=res;t.onerror=()=>rej(new Error('No se pudo cargar '+src));document.head.appendChild(t);});}
+async function ensureGbaCore(){
+  if(window.ArcadiaGBA?.available?.())return;
+  if(!gbaLoading)gbaLoading=(async()=>{if(typeof window.GameBoyAdvanceEmulator!=='function')await loadScriptOnce('vendor/gba/iodine-gba.min.js');if(!window.ArcadiaGBA)await loadScriptOnce('vendor/gba/gba-engine.js');})().catch(e=>{gbaLoading=null;throw e;});
+  await gbaLoading;
+}
+function stopGbaEngine(){
+  if(gbaEngine){try{gbaEngine.destroy();}catch{} gbaEngine=null;}
+  document.querySelectorAll('#gbaPad button.on').forEach(b=>b.classList.remove('on'));
+}
 function closeGbaPlayer(){
   $('#gbaModal')?.classList.remove('open');
-  const frame=$('#gbaFrame'); if(frame) frame.src='about:blank';
-  if(gbaRomObjectUrl){URL.revokeObjectURL(gbaRomObjectUrl);gbaRomObjectUrl=null;}
-  $('#gbaStage').innerHTML='<div class="gba-empty" id="gbaEmpty"><strong>Tu próxima aventura portátil</strong><p>Carga tu archivo .gba para iniciar el emulador. Los controles de teclado y táctiles los proporciona el emulador.</p><button class="btn primary" id="gbaChooseBig">Elegir archivo de juego</button></div>';
+  stopGbaEngine();
+  if(document.fullscreenElement)document.exitFullscreen?.();
+  $('#gbaStage').innerHTML='<div class="gba-empty" id="gbaEmpty"><strong>Tu próxima aventura portátil</strong><p>Carga tu archivo .gba para iniciar el emulador de Arcadia.</p><button class="btn primary" id="gbaChooseBig">Elegir archivo de juego</button></div>';
   $('#gbaChooseBig')?.addEventListener('click',()=>$('#gbaRomInput').click());
   $('#gbaStatus').textContent='Emulador cerrado.';
 }
-function loadGbaRom(file, persist=true){
+async function loadGbaRom(file, persist=true){
   if(!file)return;
-  const lower=file.name.toLowerCase();
-  if(!(/\.(gba|zip|7z|bin)$/.test(lower))){$('#gbaStatus').textContent='Formato no reconocido. Selecciona una ROM .gba o un archivo comprimido compatible.';return;}
-  if(persist) saveGbaRom(file).then(()=>$('#gbaStatus').textContent='ROM guardada en este navegador; no tendrás que seleccionarla cada vez.').catch(error=>{console.warn(error);$('#gbaStatus').textContent='El juego se abrirá, pero el navegador no pudo guardar la ROM. Puede que debas seleccionarla otra vez.';});
-  if(gbaRomObjectUrl)URL.revokeObjectURL(gbaRomObjectUrl);
-  gbaRomObjectUrl=URL.createObjectURL(file);
-  const stage=$('#gbaStage');
-  stage.innerHTML='';
-  const frame=document.createElement('iframe'); frame.id='gbaFrame'; frame.title='Emulador Game Boy Advance'; frame.allow='autoplay; fullscreen; gamepad'; frame.referrerPolicy='no-referrer';
-  stage.appendChild(frame);
-  $('#gbaStatus').textContent='Cargando emulador y ROM… la primera carga puede tardar.';
-  const gameUrl=JSON.stringify(gbaRomObjectUrl);
-  frame.srcdoc='<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><style>html,body,#game{margin:0;width:100%;height:100%;background:#000;overflow:hidden}body{color:#fff;font:14px system-ui}#loading{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:20px;box-sizing:border-box;color:#c4f36a}</style></head><body><div id="loading">Iniciando Game Boy Advance…<br>Descargando el emulador</div><div id="game"></div><script>window.EJS_player="#game";window.EJS_core="gba";window.EJS_gameUrl='+gameUrl+';window.EJS_gameName='+JSON.stringify(file.name.replace(/[<>]/g,''))+';window.EJS_pathtodata="https://cdn.emulatorjs.org/stable/data/";window.EJS_startOnLoaded=true;window.EJS_language="es-ES";window.EJS_color="#c4f36a";window.EJS_backgroundColor="#000000";window.EJS_onGameStart=function(){var e=document.getElementById("loading");if(e)e.remove();};window.EJS_onLoad=function(){var e=document.getElementById("loading");if(e)e.textContent="Emulador listo. Si no aparece el juego, comprueba la ROM y la conexión.";};</script><script src="https://cdn.emulatorjs.org/stable/data/loader.js"></script></body></html>';
-  frame.addEventListener('load',()=>{ $('#gbaStatus').textContent='Descargando el núcleo de GBA… la primera carga puede tardar.'; },{once:true});
+  if(!(/\.(gba|bin)$/i.test(file.name))){$('#gbaStatus').textContent='Formato no reconocido. Selecciona una ROM .gba (los .zip aún no se admiten: descomprímelo antes).';return;}
+  if(persist) saveGbaRom(file).then(()=>$('#gbaStatus').textContent='ROM guardada en este navegador; no tendrás que seleccionarla cada vez.').catch(error=>{console.warn(error);$('#gbaStatus').textContent='El juego se abrirá, pero el navegador no pudo guardar la ROM.';});
+  stopGbaEngine();
+  const stage=$('#gbaStage'); stage.innerHTML='';
+  const canvas=document.createElement('canvas'); canvas.id='gbaCanvas'; stage.appendChild(canvas);
+  $('#gbaStatus').textContent='Iniciando el emulador de Arcadia…';
+  try{
+    await ensureGbaCore();
+    const bytes=new Uint8Array(await file.arrayBuffer());
+    const engine=await window.ArcadiaGBA.create(canvas,{biosUrl:'vendor/gba/bios.bin',saveKeyPrefix:'rom:'+file.name.replace(/\.[^.]+$/,'')+':',onSpeed:pct=>{if(gbaEngine&&pct)$('#gbaStatus').textContent='GBA · '+file.name+' · '+Math.round(pct)+'%';}});
+    gbaEngine=engine; engine.load(bytes); engine.start();
+    $('#gbaStatus').textContent='GBA · '+file.name;
+    if(matchMedia('(pointer:coarse)').matches)$('#gbaPad').classList.add('show');
+  }catch(error){
+    console.error(error); stopGbaEngine();
+    $('#gbaStatus').textContent='No se pudo iniciar el juego: '+(error.message||error);
+  }
 }
+(function gbaInput(){
+  const pad=$('#gbaPad'); if(!pad)return;
+  const press=(btn,on)=>{const k=+btn.dataset.k; btn.classList.toggle('on',on); if(gbaEngine){on?gbaEngine.keyDown(k):gbaEngine.keyUp(k);} if(on&&navigator.vibrate)try{navigator.vibrate(8)}catch{}};
+  const active=new Map();
+  pad.addEventListener('pointerdown',e=>{const b=e.target.closest('button[data-k]');if(!b)return;e.preventDefault();try{pad.setPointerCapture(e.pointerId)}catch{} active.set(e.pointerId,b);press(b,true);});
+  pad.addEventListener('pointermove',e=>{if(!active.has(e.pointerId))return;const el=document.elementFromPoint(e.clientX,e.clientY)?.closest?.('button[data-k]');const cur=active.get(e.pointerId);if(el&&el!==cur&&pad.contains(el)){press(cur,false);active.set(e.pointerId,el);press(el,true);}});
+  const up=e=>{const b=active.get(e.pointerId);if(b){press(b,false);active.delete(e.pointerId);}};
+  pad.addEventListener('pointerup',up);pad.addEventListener('pointercancel',up);
+  document.addEventListener('keydown',e=>{if(!gbaEngine||!$('#gbaModal')?.classList.contains('open'))return;const k=gbaKeyMap[e.key];if(k===undefined)return;e.preventDefault();pad.classList.remove('show');if(!e.repeat)gbaEngine.keyDown(k);});
+  document.addEventListener('keyup',e=>{if(!gbaEngine)return;const k=gbaKeyMap[e.key];if(k!==undefined)gbaEngine.keyUp(k);});
+  document.addEventListener('visibilitychange',()=>{if(!gbaEngine)return;if(document.hidden){gbaEngine.pause();gbaEngine.releaseAll();}else if($('#gbaModal')?.classList.contains('open'))gbaEngine.resume();});
+})();
 $('#gbaChoose')?.addEventListener('click',()=>$('#gbaRomInput').click());
 $('#gbaChooseBig')?.addEventListener('click',()=>$('#gbaRomInput').click());
 $('#gbaRomInput')?.addEventListener('change',event=>{loadGbaRom(event.target.files?.[0]);event.target.value='';});
@@ -989,7 +1016,7 @@ document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('#gbaModa
 
 // News badge is lit only until the user opens the current release notes.
 (function setupArcadiaNews(){
-  const version='1.5.5';
+  const version='1.6.0';
   const dot=$('#newsButton'), panel=$('#newsPanel');
   if(!dot||!panel)return;
   let seen=''; try{seen=localStorage.getItem('arcadia-news-seen-version')||'';}catch{}
