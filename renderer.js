@@ -957,9 +957,10 @@ async function openGbaPlayer(gameName='',autoRestore=true){
 }
 let gbaEngine=null, gbaLoading=null, gbaKeyMap={ArrowRight:4,ArrowLeft:5,ArrowUp:6,ArrowDown:7,x:0,X:0,z:1,Z:1,Enter:3,Shift:2,s:8,S:8,a:9,A:9};
 function loadScriptOnce(src){return new Promise((res,rej)=>{const t=document.createElement('script');t.src=src;t.onload=res;t.onerror=()=>rej(new Error('No se pudo cargar '+src));document.head.appendChild(t);});}
+async function loadAny(list){let last;for(const u of list){try{await loadScriptOnce(u);return;}catch(e){last=e;}}throw new Error('No se encontró '+list[0]+' en tu sitio. Sube la carpeta vendor/gba completa (3 archivos) al repositorio.');}
 async function ensureGbaCore(){
   if(window.ArcadiaGBA?.available?.())return;
-  if(!gbaLoading)gbaLoading=(async()=>{if(typeof window.GameBoyAdvanceEmulator!=='function')await loadScriptOnce('vendor/gba/iodine-gba.min.js');if(!window.ArcadiaGBA)await loadScriptOnce('vendor/gba/gba-engine.js');})().catch(e=>{gbaLoading=null;throw e;});
+  if(!gbaLoading)gbaLoading=(async()=>{if(typeof window.GameBoyAdvanceEmulator!=='function')await loadAny(['vendor/gba/iodine-gba.min.js','iodine-gba.min.js','/vendor/gba/iodine-gba.min.js']);if(!window.ArcadiaGBA)await loadAny(['vendor/gba/gba-engine.js','gba-engine.js','/vendor/gba/gba-engine.js']);})().catch(e=>{gbaLoading=null;throw e;});
   await gbaLoading;
 }
 function stopGbaEngine(){
@@ -985,7 +986,7 @@ async function loadGbaRom(file, persist=true){
   try{
     await ensureGbaCore();
     const bytes=new Uint8Array(await file.arrayBuffer());
-    const engine=await window.ArcadiaGBA.create(canvas,{biosUrl:'vendor/gba/bios.bin',saveKeyPrefix:'rom:'+file.name.replace(/\.[^.]+$/,'')+':',onSpeed:pct=>{if(gbaEngine&&pct)$('#gbaStatus').textContent='GBA · '+file.name+' · '+Math.round(pct)+'%';}});
+    const engine=await window.ArcadiaGBA.create(canvas,{biosUrl:await (async()=>{for(const u of ['vendor/gba/bios.bin','bios.bin','/vendor/gba/bios.bin']){try{const r=await fetch(u,{method:'HEAD'});if(r.ok)return u;}catch{}}return 'vendor/gba/bios.bin';})(),saveKeyPrefix:'rom:'+file.name.replace(/\.[^.]+$/,'')+':',onSpeed:pct=>{if(gbaEngine&&pct)$('#gbaStatus').textContent='GBA · '+file.name+' · '+Math.round(pct)+'%';}});
     gbaEngine=engine; engine.load(bytes); engine.start();
     $('#gbaStatus').textContent='GBA · '+file.name;
     if(matchMedia('(pointer:coarse)').matches)$('#gbaPad').classList.add('show');
@@ -1016,7 +1017,7 @@ document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('#gbaModa
 
 // News badge is lit only until the user opens the current release notes.
 (function setupArcadiaNews(){
-  const version='1.6.0';
+  const version='1.6.1';
   const dot=$('#newsButton'), panel=$('#newsPanel');
   if(!dot||!panel)return;
   let seen=''; try{seen=localStorage.getItem('arcadia-news-seen-version')||'';}catch{}
