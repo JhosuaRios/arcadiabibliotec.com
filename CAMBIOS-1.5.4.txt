@@ -1,0 +1,9 @@
+ARCADIA WEB 1.5.4 — POKÉMON RUBÍ EN LA BIBLIOTECA GBA
+
+- Al seleccionar Game Boy Advance, Arcadia abre la biblioteca filtrada de GBA como ocurre con NES.
+- Pokémon Rubí aparece como el primer juego destacado de GBA con la carátula proporcionada por el usuario.
+- El botón Jugar abre el reproductor GBA y solicita una ROM .gba propia; no se incluye ROM.
+- La carátula se encuentra en art/cover-pokemon-ruby.png y se añade a los recursos del service worker.
+- Se actualizó el número de versión, el aviso Novedades y la caché para recibir esta versión.
+
+Validación realizada: node --check en renderer.js y sw.js, comprobación de rutas de recursos y prueba de integridad del ZIP. No se ejecutó una prueba de navegador con una ROM real.

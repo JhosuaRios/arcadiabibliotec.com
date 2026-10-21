@@ -42,16 +42,20 @@ const FEATURED_NES_GAMES = [
   { id: 'featured-nes-the-legend-of-zelda', name: 'The Legend of Zelda', platform: 'NES', kind: 'ROM', file: '', cover: 'arcadia://art/cover-the-legend-of-zelda.webp', description: 'Aventura clásica de NES · Selecciona tu archivo .nes para jugar', icon: '🗡️', colors: ['#d69a87', '#263b24'] },
   { id: 'featured-nes-tetris', name: 'Tetris', platform: 'NES', kind: 'ROM', file: '', cover: 'arcadia://art/cover-tetris.webp', description: 'Clásico de puzles de NES · Selecciona tu archivo .nes para jugar', icon: '🧩', colors: ['#1d57cb', '#7c2ed8'] }
 ];
+const FEATURED_GBA_GAMES = [
+  { id: 'featured-gba-pokemon-ruby', name: 'Pokémon Rubí', platform: 'Game Boy Advance', kind: 'ROM', file: '', cover: 'arcadia://art/cover-pokemon-ruby.png', description: 'Game Boy Advance · Selecciona tu ROM propia .gba para jugar', icon: '🔥', colors: ['#a82727', '#451c20'] }
+];
+const FEATURED_GAMES = [...FEATURED_NES_GAMES, ...FEATURED_GBA_GAMES];
 
 function gamesInLibrary() {
   if (!Array.isArray(catalog.games)) catalog.games = [];
   // Always repair the catalog idempotently. The previous V3 flag prevented
   // newly featured games (such as Tetris) from being added to existing installs.
   let changed = false;
-  for (const featured of FEATURED_NES_GAMES) {
+  for (const featured of FEATURED_GAMES) {
     let existing = catalog.games.find(game => game.id === featured.id);
     if (!existing) existing = catalog.games.find(game =>
-      String(game.platform || '').toLocaleLowerCase() === 'nes' &&
+      String(game.platform || '').toLocaleLowerCase() === String(featured.platform || '').toLocaleLowerCase() &&
       String(game.name || '').toLocaleLowerCase() === featured.name.toLocaleLowerCase()
     );
     if (!existing) {
@@ -163,6 +167,11 @@ async function launchGame(id) {
     if (!/\.nes$/i.test(selectedName)) { notify('Elige una ROM de NES con extensión .nes.', true); return; }
     game.file = selectedFile;
     await saveCatalog();
+  }
+  if (String(game.platform || '').toLowerCase().includes('game boy advance') || String(game.platform || '').toLowerCase() === 'gba') {
+    openGbaPlayer(game.name);
+    $('#gbaRomInput')?.click();
+    return;
   }
   if (!game.file) { notify('Este registro no tiene un archivo de juego asociado.', true); return; }
   if (isNesRom(game)) { await launchNesGame(game); return; }
@@ -718,7 +727,7 @@ $('#platforms').addEventListener('click', event => {
 });
 $('#search').addEventListener('input', () => { selected = 0; render(); });
 $('#addTile').addEventListener('click', () => openAddGame());
-$('#chooseGba')?.addEventListener('click', openGbaPlayer);
+$('#chooseGba')?.addEventListener('click', () => { setFilter('Game Boy Advance'); $('#storyStage').scrollIntoView({ behavior: 'smooth', block: 'center' }); });
 $('#chooseNes')?.addEventListener('click', () => { setFilter('NES'); $('#storyStage').scrollIntoView({ behavior: 'smooth', block: 'center' }); });
 $('#platforms').addEventListener('click', event => { if (event.target.closest('#gbaPlatformButton')) { event.preventDefault(); openGbaPlayer(); } });
 $('#libraryTile').addEventListener('click', () => { setFilter('all'); $('#storyStage').scrollIntoView({ behavior: 'smooth', block: 'center' }); });
@@ -919,10 +928,10 @@ function pollGamepad() {
 
 // Standalone GBA player: loads EmulatorJS on demand; ROM files stay local to the browser session.
 let gbaRomObjectUrl = null;
-function openGbaPlayer(){
+function openGbaPlayer(gameName=''){
   const modal=$('#gbaModal'); if(!modal)return;
   modal.classList.add('open');
-  $('#gbaStatus').textContent='Elige una ROM .gba para empezar.';
+  $('#gbaStatus').textContent=gameName ? `Selecciona tu ROM .gba de ${gameName} para empezar.` : 'Elige una ROM .gba para empezar.';
 }
 function closeGbaPlayer(){
   $('#gbaModal')?.classList.remove('open');
@@ -957,7 +966,7 @@ document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('#gbaModa
 
 // News badge is lit only until the user opens the current release notes.
 (function setupArcadiaNews(){
-  const version='1.5.3';
+  const version='1.5.4';
   const dot=$('#newsButton'), panel=$('#newsPanel');
   if(!dot||!panel)return;
   let seen=''; try{seen=localStorage.getItem('arcadia-news-seen-version')||'';}catch{}
@@ -976,10 +985,10 @@ document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('#gbaModa
     // Merge featured titles on every startup, not only on the old V3 flag.
     // This is what allows existing installations to receive new catalog entries.
     let featuredCatalogChanged = false;
-    for (const featured of FEATURED_NES_GAMES) {
+    for (const featured of FEATURED_GAMES) {
       let existing = catalog.games.find(game => game.id === featured.id);
       if (!existing) existing = catalog.games.find(game =>
-        String(game.platform || '').toLocaleLowerCase() === 'nes' &&
+        String(game.platform || '').toLocaleLowerCase() === String(featured.platform || '').toLocaleLowerCase() &&
         String(game.name || '').toLocaleLowerCase() === featured.name.toLocaleLowerCase()
       );
       if (!existing) {
