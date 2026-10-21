@@ -56,6 +56,30 @@
 .nes-touch-controls[data-control-mode="joystick"] .nes-system-buttons,
 .nes-touch-controls[data-control-mode="buttons"] .nes-system-buttons{position:absolute;right:4%;left:auto;top:auto;bottom:2%;transform:none}
 
+
+    /* Arcadia 1.6.3: responsive GBA viewport and less intrusive shoulder buttons */
+    .gba-stage{contain:layout paint;}
+    .gba-stage canvas{width:min(100%,calc((100dvh - 190px)*1.5));max-width:100%;max-height:100%;height:auto;object-fit:contain;}
+    @media(min-width:900px) and (pointer:fine){
+      .gba-modal{padding:clamp(12px,2vw,28px);gap:12px}
+      .gba-stage canvas{width:min(98%,calc((100dvh - 155px)*1.5));max-height:100%;border-width:7px}
+    }
+    @media(max-width:899px){
+      .gba-modal{padding:8px;gap:8px}
+      .gba-stage canvas{width:min(100%,calc((100dvh - 245px)*1.5));max-height:100%}
+      .gba-pad .sh{top:16px}
+    }
+    @media(orientation:landscape) and (pointer:coarse){
+      .gba-stage canvas{width:min(100%,calc((100dvh - 26px)*1.5))!important;max-height:100%!important}
+      .gba-pad .sh{top:42px!important}
+    }
+    @media(orientation:portrait) and (pointer:coarse){
+      .gba-pad .sh{top:18px}
+      .gba-pad .L{left:10px}
+      .gba-pad .R{right:10px}
+    }
+    @media(prefers-reduced-motion:reduce){.gba-stage canvas{scroll-behavior:auto}}
+  
 </style>
   <style id="nes-display-tuning">
     /* Keep the NES picture crisp and proportional while enlarging it to the available play area. */
