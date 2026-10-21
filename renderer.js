@@ -115,7 +115,7 @@ function render() {
     const cover = coverUrl(game);
     $('#storyStage').style.setProperty('--story-a', colors[0]);
     $('#storyStage').style.setProperty('--story-b', colors[1]);
-    $('#storyBackdrop').innerHTML = cover ? `<img src="${escapeHtml(cover)}" alt="" onerror="this.remove()">` : '';
+    $('#storyBackdrop').innerHTML = cover ? `<img src="${escapeHtml(cover)}" alt="" onerror="if(!this.dataset.rootFallback){this.dataset.rootFallback='1';this.src='./'+this.src.split('/').pop()}else{this.remove()}">` : '';
     $('#storyDetails').innerHTML = `<span class="story-mark" aria-hidden="true">${cover ? '' : escapeHtml(game.icon || '🎮')}</span><div class="story-content"><div class="story-platform">${escapeHtml(game.platform)} · ${escapeHtml(game.kind || 'Juego')}</div><h2>${escapeHtml(game.name)}</h2><p>${escapeHtml(game.description || 'En tu biblioteca personal')}</p><div class="story-actions"><button class="btn primary" id="playSelected">▶ &nbsp; Jugar</button><button class="btn subtle" id="editSelected">✎ &nbsp; Personalizar</button><button class="btn subtle" id="favoriteSelected" aria-label="${game.favorite ? 'Quitar de favoritos' : 'Añadir a favoritos'}">${game.favorite ? '♥' : '♡'} Favorito</button><button class="btn subtle" id="removeSelected">Quitar</button></div></div>`;
     $('#storyPrevious').disabled = games.length < 2;
     $('#storyNext').disabled = games.length < 2;
@@ -133,10 +133,10 @@ function render() {
   $('#recentRow').innerHTML = recent.length ? recent.map(game => {
     const colors = game.colors || ['#397c6f', '#25365b'];
     const cover = coverUrl(game);
-    return `<button class="recent-item" data-recent="${escapeHtml(game.id)}"><span class="recent-art" style="--cover-a:${escapeHtml(colors[0])};--cover-b:${escapeHtml(colors[1])}">${cover ? `<img src="${escapeHtml(cover)}" alt="" onerror="this.remove()">` : escapeHtml(game.icon || '🎮')}</span><span class="recent-copy"><strong>${escapeHtml(game.name)}</strong><small>${escapeHtml(game.platform)} · ${escapeHtml(game.kind)}</small></span><span class="recent-play" aria-hidden="true">▶</span></button>`;
+    return `<button class="recent-item" data-recent="${escapeHtml(game.id)}"><span class="recent-art" style="--cover-a:${escapeHtml(colors[0])};--cover-b:${escapeHtml(colors[1])}">${cover ? `<img src="${escapeHtml(cover)}" alt="" onerror="if(!this.dataset.rootFallback){this.dataset.rootFallback='1';this.src='./'+this.src.split('/').pop()}else{this.remove()}">` : escapeHtml(game.icon || '🎮')}</span><span class="recent-copy"><strong>${escapeHtml(game.name)}</strong><small>${escapeHtml(game.platform)} · ${escapeHtml(game.kind)}</small></span><span class="recent-play" aria-hidden="true">▶</span></button>`;
   }).join('') : '<div class="recent-empty">Tus juegos añadidos aparecerán aquí.</div>';
   const platforms = [...new Set(allGames.map(game => game.platform))];
-  $('#platforms').innerHTML = platforms.map(platform => `<button class="platform-button ${filter === platform ? 'active' : ''}" data-platform="${escapeHtml(platform)}" title="${escapeHtml(platform)}">${platformMark(platform)}<span class="tooltip">${escapeHtml(platform)}</span></button>`).join('') + `<button class="platform-button" id="gbaPlatformButton" title="Game Boy Advance">GBA<span class="tooltip">Game Boy Advance · Cargar ROM</span></button>`;
+  $('#platforms').innerHTML = platforms.map(platform => `<button class="platform-button ${filter === platform ? 'active' : ''}" data-platform="${escapeHtml(platform)}" title="${escapeHtml(platform)}">${platformMark(platform)}<span class="tooltip">${escapeHtml(platform)}</span></button>`).join('');
   $$('.nav [data-filter]').forEach(button => button.classList.toggle('active', button.dataset.filter === filter));
 }
 function platformMark(platform) {
@@ -169,8 +169,9 @@ async function launchGame(id) {
     await saveCatalog();
   }
   if (String(game.platform || '').toLowerCase().includes('game boy advance') || String(game.platform || '').toLowerCase() === 'gba') {
-    openGbaPlayer(game.name);
-    $('#gbaRomInput')?.click();
+    const saved = await getSavedGbaRom().catch(()=>null);
+    await openGbaPlayer(game.name, false);
+    if (saved) loadGbaRom(saved, false); else $('#gbaRomInput')?.click();
     return;
   }
   if (!game.file) { notify('Este registro no tiene un archivo de juego asociado.', true); return; }
@@ -729,7 +730,6 @@ $('#search').addEventListener('input', () => { selected = 0; render(); });
 $('#addTile').addEventListener('click', () => openAddGame());
 $('#chooseGba')?.addEventListener('click', () => { setFilter('Game Boy Advance'); $('#storyStage').scrollIntoView({ behavior: 'smooth', block: 'center' }); });
 $('#chooseNes')?.addEventListener('click', () => { setFilter('NES'); $('#storyStage').scrollIntoView({ behavior: 'smooth', block: 'center' }); });
-$('#platforms').addEventListener('click', event => { if (event.target.closest('#gbaPlatformButton')) { event.preventDefault(); openGbaPlayer(); } });
 $('#libraryTile').addEventListener('click', () => { setFilter('all'); $('#storyStage').scrollIntoView({ behavior: 'smooth', block: 'center' }); });
 $('#romsTile').addEventListener('click', withErrorToast(() => window.arcadia.openExternal('https://www.mediafire.com/folder/sm1vuzwjveiul/Juegos')));
 $('#controlsBtn').addEventListener('click', () => openModal('controlsModal'));
@@ -926,12 +926,34 @@ function pollGamepad() {
 }
 
 
-// Standalone GBA player: loads EmulatorJS on demand; ROM files stay local to the browser session.
+// Standalone GBA player. ROMs are stored locally in IndexedDB (never uploaded).
 let gbaRomObjectUrl = null;
-function openGbaPlayer(gameName=''){
+const GBA_ROM_DB = 'arcadia-local-roms-v1';
+function openGbaRomDb(){
+  return new Promise((resolve,reject)=>{
+    if(!('indexedDB' in window)){reject(new Error('Este navegador no permite guardar ROMs localmente.'));return;}
+    const request=indexedDB.open(GBA_ROM_DB,1);
+    request.onupgradeneeded=()=>{if(!request.result.objectStoreNames.contains('roms'))request.result.createObjectStore('roms');};
+    request.onsuccess=()=>resolve(request.result); request.onerror=()=>reject(request.error||new Error('No se pudo abrir el almacenamiento local.'));
+  });
+}
+async function saveGbaRom(file){
+  const db=await openGbaRomDb();
+  return new Promise((resolve,reject)=>{const tx=db.transaction('roms','readwrite');tx.objectStore('roms').put({blob:file,name:file.name,type:file.type||'application/octet-stream',savedAt:Date.now()},'last-gba-rom');tx.oncomplete=()=>{db.close();resolve(true)};tx.onerror=()=>{db.close();reject(tx.error||new Error('No se pudo guardar la ROM.'))};tx.onabort=()=>{db.close();reject(tx.error||new Error('Se canceló el guardado de la ROM.'))};});
+}
+async function getSavedGbaRom(){
+  const db=await openGbaRomDb();
+  return new Promise((resolve,reject)=>{const tx=db.transaction('roms','readonly');const req=tx.objectStore('roms').get('last-gba-rom');req.onsuccess=()=>{const record=req.result;db.close();if(record?.blob)resolve(new File([record.blob],record.name||'arcadia-game.gba',{type:record.type||'application/octet-stream'}));else resolve(null)};req.onerror=()=>{db.close();reject(req.error||new Error('No se pudo recuperar la ROM guardada.'))};});
+}
+async function openGbaPlayer(gameName='',autoRestore=true){
   const modal=$('#gbaModal'); if(!modal)return;
   modal.classList.add('open');
-  $('#gbaStatus').textContent=gameName ? `Selecciona tu ROM .gba de ${gameName} para empezar.` : 'Elige una ROM .gba para empezar.';
+  $('#gbaStatus').textContent=gameName ? `Buscando la ROM guardada de ${gameName}…` : 'Buscando una ROM guardada…';
+  if(autoRestore){
+    try{const saved=await getSavedGbaRom();if(saved){loadGbaRom(saved,false);$('#gbaStatus').textContent=`Abriendo ${saved.name} guardada en este navegador…`;return;}}
+    catch(error){console.warn('No se pudo restaurar la ROM GBA:',error);}
+  }
+  $('#gbaStatus').textContent=gameName ? `Selecciona tu ROM .gba de ${gameName} la primera vez.` : 'Elige una ROM .gba para empezar.';
 }
 function closeGbaPlayer(){
   $('#gbaModal')?.classList.remove('open');
@@ -941,10 +963,11 @@ function closeGbaPlayer(){
   $('#gbaChooseBig')?.addEventListener('click',()=>$('#gbaRomInput').click());
   $('#gbaStatus').textContent='Emulador cerrado.';
 }
-function loadGbaRom(file){
+function loadGbaRom(file, persist=true){
   if(!file)return;
   const lower=file.name.toLowerCase();
   if(!(/\.(gba|zip|7z|bin)$/.test(lower))){$('#gbaStatus').textContent='Formato no reconocido. Selecciona una ROM .gba o un archivo comprimido compatible.';return;}
+  if(persist) saveGbaRom(file).then(()=>$('#gbaStatus').textContent='ROM guardada en este navegador; no tendrás que seleccionarla cada vez.').catch(error=>{console.warn(error);$('#gbaStatus').textContent='El juego se abrirá, pero el navegador no pudo guardar la ROM. Puede que debas seleccionarla otra vez.';});
   if(gbaRomObjectUrl)URL.revokeObjectURL(gbaRomObjectUrl);
   gbaRomObjectUrl=URL.createObjectURL(file);
   const stage=$('#gbaStage');
@@ -966,7 +989,7 @@ document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('#gbaModa
 
 // News badge is lit only until the user opens the current release notes.
 (function setupArcadiaNews(){
-  const version='1.5.4';
+  const version='1.5.5';
   const dot=$('#newsButton'), panel=$('#newsPanel');
   if(!dot||!panel)return;
   let seen=''; try{seen=localStorage.getItem('arcadia-news-seen-version')||'';}catch{}

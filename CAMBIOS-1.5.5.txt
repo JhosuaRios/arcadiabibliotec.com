@@ -1,0 +1,9 @@
+Arcadia Web 1.5.5
+
+- Corregido el fallback de carátulas para rutas en art/ y raíz de Pages/Workers.
+- Eliminado el botón GBA duplicado del menú lateral.
+- La última ROM GBA seleccionada se guarda en IndexedDB del navegador y se restaura al volver a jugar.
+- La ROM permanece local en el dispositivo; no se sube al servidor.
+- Novedades y caché actualizadas.
+
+Nota: se validó estáticamente el código y el ZIP; no se ha probado en un navegador real con una ROM del usuario.
