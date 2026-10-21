@@ -1,0 +1,10 @@
+Arcadia Web 1.5.0 — Game Boy Advance
+
+- Añadido un acceso directo a Game Boy Advance en el menú de plataformas y en Acceso rápido.
+- Puedes elegir una ROM propia (.gba; también se aceptan archivos comprimidos compatibles) y abrirla en el navegador.
+- El emulador se carga bajo demanda desde el CDN de EmulatorJS. La primera ejecución necesita conexión a Internet.
+- El archivo seleccionado se utiliza desde una URL temporal local del navegador; no se sube a un servidor de Arcadia.
+- Añadidos controles para cargar otra ROM, pantalla completa y salir del emulador.
+- No se incluyen ROMs ni BIOS. La integración GBA es independiente del emulador NES y del multijugador existente.
+
+Validación realizada: sintaxis de renderer.js, online.js y sw.js; integridad del ZIP. La emulación debe probarse en un navegador real con una ROM propia y conexión al CDN; no se ha probado en un teléfono físico.

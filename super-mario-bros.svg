@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720" role="img" aria-label="Aventura de plataformas de 8 bits">
+<defs>
+ <linearGradient id="sky" x2="0" y2="1"><stop stop-color="#ff9b42"/><stop offset=".58" stop-color="#f04c38"/><stop offset="1" stop-color="#8d254f"/></linearGradient>
+ <linearGradient id="hill" x2="0" y2="1"><stop stop-color="#46b979"/><stop offset="1" stop-color="#145d57"/></linearGradient>
+ <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse"><path d="M48 0H0V48" fill="none" stroke="#fff" stroke-opacity=".06" stroke-width="2"/></pattern>
+ <filter id="shadow"><feGaussianBlur stdDeviation="12"/></filter>
+</defs>
+<rect width="1200" height="720" fill="url(#sky)"/><rect width="1200" height="720" fill="url(#grid)"/>
+<circle cx="910" cy="160" r="88" fill="#ffe17c" opacity=".8"/>
+<g fill="#fff1d2" opacity=".74"><path d="M160 140h96v24h-48v24h-96v-24h48z"/><path d="M680 92h96v24h-48v24h-96v-24h48z"/></g>
+<path d="M0 485 160 355l95 81 165-180 144 170 115-115 132 160 133-191 167 204 99-74v310H0z" fill="#6d365f" opacity=".6"/>
+<path d="M0 520 126 420l104 73 138-149 140 145 131-86 126 119 158-144 119 116 158-102v308H0z" fill="url(#hill)"/>
+<path d="M0 590h1200v130H0z" fill="#2eaa67"/><path d="M0 624h1200v96H0z" fill="#3ac878"/>
+<g fill="#f6c65f"><path d="M118 520h72v72h-72z"/><path d="M190 520h72v72h-72z"/><path d="M262 520h72v72h-72z"/></g>
+<g fill="#9e4d38" stroke="#381c36" stroke-width="10" stroke-linejoin="round">
+ <!-- pixel hero: cap, face, moustache, blue overalls -->
+ <path d="M500 276h188v46h-46v44H520v-44h-20z" fill="#e93636"/>
+ <path d="M528 366h142v120H528z" fill="#f4b36d"/>
+ <path d="M518 392h30v24h-30zm134 0h30v24h-30z" fill="#38222b" stroke="none"/>
+ <path d="M540 448h52v25h-52zm52-23h42v26h-42zm42 23h43v25h-43z" fill="#452538" stroke="none"/>
+ <path d="M488 486h206v132H488z" fill="#2467bd"/>
+ <path d="M514 486h42v52h-42zm116 0h42v52h-42z" fill="#f2c45a"/>
+ <path d="M468 610h105v46H468zm141 0h106v46H609z" fill="#563c37"/>
+</g>
+<g fill="#ffe275"><path d="M350 282h30v72h-30z"/><path d="M365 267h30v30h-30z"/><path d="M812 318h30v72h-30z"/><path d="M797 303h30v30h-30z"/><path d="M1010 420h26v62h-26z"/></g>
+<rect x="32" y="32" width="1136" height="656" rx="28" fill="none" stroke="#fff" stroke-opacity=".42" stroke-width="3"/>
+<text x="74" y="106" fill="#fff" font-family="Arial,sans-serif" font-size="27" font-weight="700" letter-spacing="5">ARCADIA · CLÁSICOS 8-BIT</text>
+<text x="74" y="650" fill="#fff" font-family="Arial,sans-serif" font-size="38" font-weight="800" letter-spacing="2">SUPER MARIO BROS.</text>
+</svg>
+
