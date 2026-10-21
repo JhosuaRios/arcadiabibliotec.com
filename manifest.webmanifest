@@ -1,8 +1,8 @@
 {
   "id": "./index.html",
-  "name": "Arcadia Web 1.4.0",
+  "name": "Arcadia Web 1.5.3",
   "short_name": "Arcadia",
-  "description": "Biblioteca personal y multijugador NES local",
+  "description": "Biblioteca personal con consolas NES y Game Boy Advance",
   "lang": "es",
   "start_url": "./index.html",
   "scope": "./",

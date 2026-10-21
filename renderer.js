@@ -718,7 +718,8 @@ $('#platforms').addEventListener('click', event => {
 });
 $('#search').addEventListener('input', () => { selected = 0; render(); });
 $('#addTile').addEventListener('click', () => openAddGame());
-$('#gbaTile')?.addEventListener('click', openGbaPlayer);
+$('#chooseGba')?.addEventListener('click', openGbaPlayer);
+$('#chooseNes')?.addEventListener('click', () => { setFilter('NES'); $('#storyStage').scrollIntoView({ behavior: 'smooth', block: 'center' }); });
 $('#platforms').addEventListener('click', event => { if (event.target.closest('#gbaPlatformButton')) { event.preventDefault(); openGbaPlayer(); } });
 $('#libraryTile').addEventListener('click', () => { setFilter('all'); $('#storyStage').scrollIntoView({ behavior: 'smooth', block: 'center' }); });
 $('#romsTile').addEventListener('click', withErrorToast(() => window.arcadia.openExternal('https://www.mediafire.com/folder/sm1vuzwjveiul/Juegos')));
@@ -956,7 +957,7 @@ document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('#gbaModa
 
 // News badge is lit only until the user opens the current release notes.
 (function setupArcadiaNews(){
-  const version='1.5.0';
+  const version='1.5.3';
   const dot=$('#newsButton'), panel=$('#newsPanel');
   if(!dot||!panel)return;
   let seen=''; try{seen=localStorage.getItem('arcadia-news-seen-version')||'';}catch{}
