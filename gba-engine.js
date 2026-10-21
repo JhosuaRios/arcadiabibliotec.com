@@ -178,6 +178,7 @@
         start() {
           if (destroyed) return;
           sound.ensureContext(); sound.resume();
+          core.enableAudio();
           core.play();
           if (!timer) timer = setInterval(loop, 8);
         },
