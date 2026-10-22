@@ -1169,7 +1169,7 @@ async function loadGbaRom(file, persist=true){
     const ax=gp.axes[0]||0,ay=gp.axes[1]||0;
     if(ax<-.5)want.add(5);if(ax>.5)want.add(4);if(ay<-.5)want.add(6);if(ay>.5)want.add(7);
     for(const k of want)if(!held.has(k))gbaEngine.keyDown(k);
-    for(const k of [...held])if(k!=='turbo'&&!want.has(k))gbaEngine.keyUp(k);
+    for(const k of [...held])if(k!=='turbo'&&!want.has(k)){gbaEngine.keyUp(k);held.delete(k);}
     want.forEach(k=>held.add(k));
   };
   document.addEventListener('visibilitychange',()=>{if(!gbaEngine)return;if(document.hidden){gbaEngine.pause();gbaEngine.releaseAll();window.gbaPadReset?.();}else if($('#gbaModal')?.classList.contains('open'))gbaEngine.resume();});
@@ -1188,7 +1188,7 @@ document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('#gbaModa
 
 // News badge is lit only until the user opens the current release notes.
 (function setupArcadiaNews(){
-  const version='1.9.0';
+  const version='1.9.2';
   const dot=$('#newsButton'), panel=$('#newsPanel');
   if(!dot||!panel)return;
   let seen=''; try{seen=localStorage.getItem('arcadia-news-seen-version')||'';}catch{}
