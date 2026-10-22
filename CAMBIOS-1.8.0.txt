@@ -1,0 +1,1 @@
+1.8.0: editor de controles GBA (teclado, mando, tactil), partidas migradas a clave por juego, copia/restauracion .json y .sav.

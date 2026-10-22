@@ -48,6 +48,21 @@
     try { db.transaction(STORE, 'readwrite').objectStore(STORE).delete(key); } catch {}
   }
 
+  async function saveAll() {
+    const db = await openDb(); const out = {};
+    memorySaves.forEach((v, k) => { out[k] = v; });
+    if (!db) return out;
+    return new Promise(resolve => {
+      try {
+        const store = db.transaction(STORE).objectStore(STORE), req = store.openCursor();
+        req.onsuccess = () => { const c = req.result; if (c) { out[c.key] = c.value; c.continue(); } else resolve(out); };
+        req.onerror = () => resolve(out);
+      } catch { resolve(out); }
+    });
+  }
+  const toB64 = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
+  const fromB64 = b => { const s = atob(b), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; };
+
   /* ── Vídeo: el núcleo entrega RGB 240×160; se pinta en el siguiente fotograma de pantalla ── */
   class Screen {
     constructor(canvas) {
@@ -155,6 +170,19 @@
   }
 
   const ArcadiaGBA = {
+    /** Copia de seguridad de TODAS las partidas (JSON con base64). */
+    async exportAllSaves() {
+      const all = await saveAll(), saves = {};
+      for (const k of Object.keys(all)) saves[k] = toB64(Uint8Array.from(all[k]));
+      return { arcadiaGbaSaves: 1, savedAt: new Date().toISOString(), saves };
+    },
+    async importAllSaves(obj) {
+      if (!obj || !obj.saves) throw new Error('Archivo de copia no válido.');
+      let n = 0;
+      for (const k of Object.keys(obj.saves)) { await savePut(k, fromB64(obj.saves[k])); n++; }
+      return n;
+    },
+    async requestPersistence() { try { return !!(await navigator.storage?.persist?.()); } catch { return false; } },
     available: () => typeof window.GameBoyAdvanceEmulator === 'function',
     /** @param canvas <canvas> destino
      *  @param opts { biosUrl, saveKeyPrefix, onSpeed(pct), onStatus(text) } */
@@ -165,6 +193,7 @@
       const screen = new Screen(canvas);
       const sound = new Sound();
       let saveKeyPrefix = opts.saveKeyPrefix || '';
+      const legacyPrefix = opts.legacyPrefix || '';
       let timer = 0, destroyed = false, playing = false, speedPct = 0;
       const t0 = performance.now();
 
@@ -192,7 +221,10 @@
       });
       let detectedType = 0, lastFound = false;
       core.attachSaveImportHandler((name, ok, fail) => {
-        saveGet(saveKeyPrefix + name).then(value => { lastFound = !!value; return value ? ok(value) : fail(); }, () => fail()).then(() => {
+        saveGet(saveKeyPrefix + name).then(async value => {
+          if (!value && legacyPrefix) { const old = await saveGet(legacyPrefix + name); if (old) { await savePut(saveKeyPrefix + name, old); value = old; } }   // migración de partidas guardadas con el formato anterior
+          lastFound = !!value; return value ? ok(value) : fail();
+        }, () => fail()).then(() => {
           // Sin partida previa: fija el tipo de memoria según las marcas del cartucho para que SIEMPRE se pueda guardar.
           if (!name.startsWith('TYPE_') && detectedType) { try { if (!core.IOCore.saves.saveType && !lastFound) core.IOCore.saves.referenceSave(detectedType); } catch {} }
         });
@@ -229,6 +261,14 @@
           if (!timer) { last = performance.now(); owed = 0; timer = setInterval(loop, 8); raf = requestAnimationFrame(rafLoop); }
         },
         saveNow() { flush(); },
+        /** Bytes de la partida actual (.sav estándar) o null si el juego aún no ha guardado. */
+        exportCurrentSave() { try { flush(); const d = core.IOCore.saves.exportSave(); return d ? Uint8Array.from(d) : null; } catch { return null; } },
+        async importCurrentSave(bytes) {
+          const n = core.getGameName?.(); if (!n) throw new Error('Abre primero el juego.');
+          const type = (core.IOCore.saves.saveType | 0) || detectedType || (bytes.length === 0x8000 ? 1 : bytes.length >= 0x10000 ? 2 : 3);
+          await savePut(saveKeyPrefix + n, Uint8Array.from(bytes)); await savePut(saveKeyPrefix + 'TYPE_' + n, Uint8Array.from([type]));
+          lastSaved.clear(); core.restart();
+        },
         pause() { core.pause(); if (timer) { clearInterval(timer); timer = 0; } cancelAnimationFrame(raf); },
         resume() { if (!destroyed) engine.start(); },
         restart() { core.restart(); },
