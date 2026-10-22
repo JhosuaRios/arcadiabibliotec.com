@@ -1,0 +1,1 @@
+1.6.7: botones tactiles GBA ligeros (sin pointermove), sin salto de cuadros.
