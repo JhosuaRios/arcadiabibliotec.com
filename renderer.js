@@ -992,40 +992,58 @@ async function loadGbaRom(file, persist=true){
     const engine=await window.ArcadiaGBA.create(canvas,{biosUrl:await (async()=>{for(const u of ['vendor/gba/bios.bin','bios.bin','/vendor/gba/bios.bin']){try{const r=await fetch(u,{method:'HEAD'});if(r.ok)return u;}catch{}}return 'vendor/gba/bios.bin';})(),saveKeyPrefix:'rom:'+file.name.replace(/\.[^.]+$/,'')+':',onSave:()=>{const el=$('#gbaStatus');if(el){const t=el.textContent;el.textContent='💾 Partida guardada';setTimeout(()=>{if(el.textContent==='💾 Partida guardada')el.textContent=t;},1500);}},onSpeed:pct=>{if(!gbaEngine||!pct)return;const fps=Math.min(60,Math.round(59.73*pct/100));const el=$('#gbaFps');if(el){el.hidden=false;el.textContent=fps+' FPS';el.className='gba-fps'+(fps<45?' bad':fps<57?' low':'');}$('#gbaStatus').textContent='GBA · '+file.name+' · '+Math.round(pct)+'%';}});
     gbaEngine=engine; engine.load(bytes); engine.start(); engine.sound.resume(); if($('#gbaPause')){$('#gbaPause').dataset.p='';$('#gbaPause').textContent='⏸ Pausa';}
     $('#gbaStatus').textContent='GBA · '+file.name;
-    if(matchMedia('(pointer:coarse)').matches){$('#gbaPad').classList.add('show');$('#gbaModal').classList.add('padon');}
+    window.gbaTouchApply?.();$('#gbaModal').classList.remove('nes-touch-hidden-kb');
   }catch(error){
     console.error(error); stopGbaEngine();
     $('#gbaStatus').textContent='No se pudo iniciar el juego: '+(error.message||error);
   }
 }
 (function gbaInput(){
-  const pad=$('#gbaPad'); if(!pad)return;
-  const press=(btn,on)=>{const k=+btn.dataset.k; btn.classList.toggle('on',on); if(gbaEngine){on?gbaEngine.keyDown(k):gbaEngine.keyUp(k);}};
-  pad.addEventListener('contextmenu',e=>e.preventDefault());
-  // Botones: igual que la cruceta (un listener directo por botón, sin pointermove ni búsquedas de elemento: más ligero).
-  const btnHeld=new Map();
-  pad.querySelectorAll('button[data-k]').forEach(btn=>{
-    // Cada pulsación se libera exactamente una vez. En Android, pointerup suele ir seguido
-    // de lostpointercapture; antes ambos eventos llamaban a keyUp y podían duplicar trabajo.
-    const rel=e=>{
-      const activeId=btnHeld.get(btn);
-      if(activeId===undefined)return;
-      if(e.pointerId!==undefined && activeId!==e.pointerId && e.type!=='lostpointercapture')return;
-      btnHeld.delete(btn);
-      press(btn,false);
-    };
-    btn.addEventListener('pointerdown',e=>{e.preventDefault();if(btnHeld.has(btn))return;btnHeld.set(btn,e.pointerId);try{btn.setPointerCapture(e.pointerId)}catch{}press(btn,true);},{passive:false});
-    btn.addEventListener('pointerup',rel);btn.addEventListener('pointercancel',rel);btn.addEventListener('lostpointercapture',rel);
+  const modal=$('#gbaModal'), touch=$('#gbaTouch'); if(!touch)return;
+  // Controles táctiles GBA: mismo diseño y mismo funcionamiento que los de NES (joystick flotante o botones).
+  const KEY={up:6,down:7,left:5,right:4,a:0,b:1,select:2,start:3,l:9,r:8};
+  const setKey=(name,on)=>{const k=KEY[name];if(k===undefined||!gbaEngine)return;on?gbaEngine.keyDown(k):gbaEngine.keyUp(k);};
+  const applyMode=()=>{let m='joystick';try{m=localStorage.getItem('arcadia-nes-touch-mode')||'joystick';}catch{}touch.dataset.controlMode=m==='buttons'?'buttons':'joystick';let s=1;try{s=parseFloat(localStorage.getItem('arcadia-nes-touch-size'))||1;}catch{}touch.style.setProperty('--touch-size',String(s));};
+  applyMode(); window.gbaTouchApply=applyMode;
+  const joy=$('#gbaJoy'), knob=$('#gbaKnob'); let joyId=null, joyRest='', joyOn=new Set();
+  const joyUpdate=e=>{
+    const r=joy.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2;let dx=e.clientX-cx,dy=e.clientY-cy;
+    const radius=Math.min(r.width,r.height)*.31,dist=Math.hypot(dx,dy)||1;if(dist>radius){dx=dx/dist*radius;dy=dy/dist*radius;}
+    knob.style.left=(50+dx/r.width*100)+'%';knob.style.top=(50+dy/r.height*100)+'%';
+    const nx=dx/radius,ny=dy/radius,next=new Set();
+    if(Math.hypot(nx,ny)>.22){if(nx<-.34)next.add('left');if(nx>.34)next.add('right');if(ny<-.34)next.add('up');if(ny>.34)next.add('down');}
+    for(const n of joyOn)if(!next.has(n))setKey(n,false);
+    for(const n of next)if(!joyOn.has(n))setKey(n,true);
+    joyOn=next;joy.classList.add('active');
+  };
+  const joyReset=()=>{for(const n of joyOn)setKey(n,false);joyOn=new Set();joyId=null;knob.style.left='50%';knob.style.top='50%';joy.classList.remove('active','floating');joy.style.cssText=joyRest;};
+  touch.addEventListener('contextmenu',e=>e.preventDefault());
+  touch.addEventListener('pointerdown',e=>{
+    modal.classList.remove('nes-touch-hidden-kb');
+    const ctl=e.target.closest('[data-gba]');
+    if(touch.dataset.controlMode==='joystick'&&!ctl){
+      const onStick=e.target.closest('#gbaJoy'),inZone=e.target.id==='gbaZone';
+      if(onStick||inZone){
+        e.preventDefault();if(joyId!==null)return;
+        joyRest=joy.style.cssText;
+        if(inZone){const r=touch.getBoundingClientRect(),sz=joy.getBoundingClientRect().width||120;
+          joy.style.left=Math.max(0,Math.min(r.width-sz,e.clientX-r.left-sz/2))+'px';joy.style.top=Math.max(0,Math.min(r.height-sz,e.clientY-r.top-sz/2))+'px';
+          joy.style.right='auto';joy.style.bottom='auto';joy.style.transform='none';joy.style.margin='0';joy.classList.add('floating');}
+        joyId=e.pointerId;touch.setPointerCapture?.(e.pointerId);joyUpdate(e);return;
+      }
+    }
+    if(!ctl)return;
+    e.preventDefault();ctl.setPointerCapture?.(e.pointerId);setKey(ctl.dataset.gba,true);ctl.classList.add('pressed');
   });
-  // Cruceta circular: 8 direcciones por ángulo.
-  const dp=$('#gbaDp'); const dirs={u:6,dn:7,l:5,r:4}; let dpId=null; const dpOn=new Set();
-  const dpSet=want=>{for(const n in dirs){const has=want.has(n),was=dpOn.has(n);if(has&&!was){dpOn.add(n);gbaEngine?.keyDown(dirs[n]);dp.querySelector('.'+n)?.classList.add('on');}else if(!has&&was){dpOn.delete(n);gbaEngine?.keyUp(dirs[n]);dp.querySelector('.'+n)?.classList.remove('on');}}};
-  const dpCalc=e=>{const r=dp.getBoundingClientRect();const dx=(e.clientX-(r.left+r.width/2))/(r.width/2),dy=(e.clientY-(r.top+r.height/2))/(r.height/2);const want=new Set();if(Math.hypot(dx,dy)>.22){const t=.38;if(dx>t)want.add('r');if(dx<-t)want.add('l');if(dy>t)want.add('dn');if(dy<-t)want.add('u');}dpSet(want);};
-  dp.addEventListener('pointerdown',e=>{e.preventDefault();if(dpId!==null)return;dpId=e.pointerId;try{dp.setPointerCapture(e.pointerId)}catch{}dpCalc(e);});
-  dp.addEventListener('pointermove',e=>{if(e.pointerId===dpId)dpCalc(e);});
-  const dpUp=e=>{if(e.pointerId===dpId){dpId=null;dpSet(new Set());}};
-  dp.addEventListener('pointerup',dpUp);dp.addEventListener('pointercancel',dpUp);dp.addEventListener('lostpointercapture',dpUp);
-  window.gbaPadReset=()=>{btnHeld.forEach((id,b)=>b.classList.remove('on'));btnHeld.clear();dpId=null;dpOn.clear();dp.querySelectorAll('i.on').forEach(i=>i.classList.remove('on'));};
+  touch.addEventListener('pointermove',e=>{if(joyId===e.pointerId){e.preventDefault();joyUpdate(e);}});
+  for(const ev of ['pointerup','pointercancel','lostpointercapture'])touch.addEventListener(ev,e=>{
+    if(joyId===e.pointerId){joyReset();return;}
+    const ctl=e.target.closest?.('[data-gba]');if(ctl){setKey(ctl.dataset.gba,false);ctl.classList.remove('pressed');}
+  });
+  window.gbaPadReset=()=>{if(joyId!==null||joyOn.size)joyReset();touch.querySelectorAll('.pressed').forEach(b=>b.classList.remove('pressed'));};
+  // Mando conectado => se ocultan los táctiles (igual que en NES)
+  const syncPad=()=>{let c=false;try{c=[...(navigator.getGamepads?.()||[])].some(p=>p&&p.connected!==false);}catch{}modal.classList.toggle('nes-touch-hidden',c);};
+  window.addEventListener('gamepadconnected',syncPad);window.addEventListener('gamepaddisconnected',syncPad);syncPad();
   const gbaOpen=()=>!!($('#gbaModal')?.classList.contains('open'));
   const wake=()=>{if(gbaEngine)gbaEngine.sound.resume();};
   document.addEventListener('pointerdown',wake,true);
@@ -1036,7 +1054,7 @@ async function loadGbaRom(file, persist=true){
     e.stopImmediatePropagation();
     const k=gbaKeyMap[e.key];
     if(k===undefined||!gbaEngine)return;
-    e.preventDefault();pad.classList.remove('show');$('#gbaModal').classList.remove('padon');if(!e.repeat)gbaEngine.keyDown(k);
+    e.preventDefault();modal.classList.add('nes-touch-hidden-kb');if(!e.repeat)gbaEngine.keyDown(k);
   },true);
   document.addEventListener('keyup',e=>{if(!gbaOpen())return;e.stopImmediatePropagation();const k=gbaKeyMap[e.key];if(k!==undefined&&gbaEngine)gbaEngine.keyUp(k);},true);
   // Mando: botón 0=A,1=B,2→B(Xbox X), 4=L,5=R, 8=Select, 9=Start, 12-15 cruceta, stick izquierdo
@@ -1049,7 +1067,7 @@ async function loadGbaRom(file, persist=true){
     padMap.forEach(([b,k])=>{if(gp.buttons[b]?.pressed)want.add(k);});
     const ax=gp.axes[0]||0, ay=gp.axes[1]||0;
     if(ax<-.5)want.add(5);if(ax>.5)want.add(4);if(ay<-.5)want.add(6);if(ay>.5)want.add(7);
-    if(want.size){pad.classList.remove('show');$('#gbaModal').classList.remove('padon');}
+    
     for(const k of want)if(!held.has(k))gbaEngine.keyDown(k);
     for(const k of [...held])if(!want.has(k))gbaEngine.keyUp(k);
     held.clear();want.forEach(k=>held.add(k));
@@ -1070,7 +1088,7 @@ document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('#gbaModa
 
 // News badge is lit only until the user opens the current release notes.
 (function setupArcadiaNews(){
-  const version='1.6.7';
+  const version='1.6.8';
   const dot=$('#newsButton'), panel=$('#newsPanel');
   if(!dot||!panel)return;
   let seen=''; try{seen=localStorage.getItem('arcadia-news-seen-version')||'';}catch{}
