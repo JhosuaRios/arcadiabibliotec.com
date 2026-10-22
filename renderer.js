@@ -966,6 +966,7 @@ async function ensureGbaCore(){
 }
 function stopGbaEngine(){
   window.gbaPadReset?.();
+  const fe=$('#gbaFps'); if(fe)fe.hidden=true;
   if(gbaEngine){try{gbaEngine.destroy();}catch{} gbaEngine=null;}
   document.querySelectorAll('#gbaPad .on').forEach(b=>b.classList.remove('on'));
 }
@@ -988,7 +989,7 @@ async function loadGbaRom(file, persist=true){
   try{
     await ensureGbaCore();
     const bytes=new Uint8Array(await file.arrayBuffer());
-    const engine=await window.ArcadiaGBA.create(canvas,{biosUrl:await (async()=>{for(const u of ['vendor/gba/bios.bin','bios.bin','/vendor/gba/bios.bin']){try{const r=await fetch(u,{method:'HEAD'});if(r.ok)return u;}catch{}}return 'vendor/gba/bios.bin';})(),saveKeyPrefix:'rom:'+file.name.replace(/\.[^.]+$/,'')+':',onSave:()=>{const el=$('#gbaStatus');if(el){const t=el.textContent;el.textContent='💾 Partida guardada';setTimeout(()=>{if(el.textContent==='💾 Partida guardada')el.textContent=t;},1500);}},onSpeed:pct=>{if(gbaEngine&&pct)$('#gbaStatus').textContent='GBA · '+file.name+' · '+Math.round(pct)+'%';}});
+    const engine=await window.ArcadiaGBA.create(canvas,{biosUrl:await (async()=>{for(const u of ['vendor/gba/bios.bin','bios.bin','/vendor/gba/bios.bin']){try{const r=await fetch(u,{method:'HEAD'});if(r.ok)return u;}catch{}}return 'vendor/gba/bios.bin';})(),saveKeyPrefix:'rom:'+file.name.replace(/\.[^.]+$/,'')+':',onSave:()=>{const el=$('#gbaStatus');if(el){const t=el.textContent;el.textContent='💾 Partida guardada';setTimeout(()=>{if(el.textContent==='💾 Partida guardada')el.textContent=t;},1500);}},onSpeed:pct=>{if(!gbaEngine||!pct)return;const fps=Math.min(60,Math.round(59.73*pct/100));const el=$('#gbaFps');if(el){el.hidden=false;el.textContent=fps+' FPS';el.className='gba-fps'+(fps<45?' bad':fps<57?' low':'');}$('#gbaStatus').textContent='GBA · '+file.name+' · '+Math.round(pct)+'%';}});
     gbaEngine=engine; engine.load(bytes); engine.start(); engine.sound.resume(); if($('#gbaPause')){$('#gbaPause').dataset.p='';$('#gbaPause').textContent='⏸ Pausa';}
     $('#gbaStatus').textContent='GBA · '+file.name;
     if(matchMedia('(pointer:coarse)').matches){$('#gbaPad').classList.add('show');$('#gbaModal').classList.add('padon');}
@@ -1061,7 +1062,7 @@ document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('#gbaModa
 
 // News badge is lit only until the user opens the current release notes.
 (function setupArcadiaNews(){
-  const version='1.6.4';
+  const version='1.6.5';
   const dot=$('#newsButton'), panel=$('#newsPanel');
   if(!dot||!panel)return;
   let seen=''; try{seen=localStorage.getItem('arcadia-news-seen-version')||'';}catch{}
