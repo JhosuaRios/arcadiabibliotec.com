@@ -60,9 +60,9 @@
       this.tick = this.tick.bind(this);
       this.raf = requestAnimationFrame(this.tick);
     }
-    copyBuffer(rgb) {                       // llamado por el núcleo en cada cuadro
-      if (!this.pending) this.pending = new Uint8Array(GBA_W * GBA_H * 3);
-      this.pending.set(rgb);
+    copyBuffer(rgb) {                       // el núcleo entrega RGB; se convierte una sola vez a RGBA
+      const dst = this.image.data;
+      for (let i = 0, j = 0, n = GBA_W * GBA_H * 3; i < n; i += 3, j += 4) { dst[j] = rgb[i]; dst[j + 1] = rgb[i + 1]; dst[j + 2] = rgb[i + 2]; }
       this.dirty = true;
     }
     tick() {
@@ -70,8 +70,6 @@
       this.raf = requestAnimationFrame(this.tick);
       if (!this.dirty) return;
       this.dirty = false;
-      const src = this.pending, dst = this.image.data;
-      for (let i = 0, j = 0, n = GBA_W * GBA_H * 3; i < n; i += 3, j += 4) { dst[j] = src[i]; dst[j + 1] = src[i + 1]; dst[j + 2] = src[i + 2]; }
       this.ctx.putImageData(this.image, 0, 0);
       this.frames++;
     }
@@ -105,34 +103,49 @@
       this.channels = channels | 0 || 2; this.rate = Math.max(8000, Math.min(96000, Math.round(sampleRate) || 44100));
       this.ensureContext();
     }
-    register() { this.registered = true; this.nextTime = 0; }
+    register() { this.registered = true; this.nextTime = 0; this.accPos = 0; }
     unregister() { this.registered = false; }
     setBufferSpace(samples) {                // relleno de silencio inicial para estabilizar
       if (!this.ctx || !this.registered || samples <= 0) return;
       this.push(new Float32Array(Math.min(samples, this.rate * this.channels)), 0, Math.min(samples, this.rate * this.channels));
     }
-    push(buffer, start, end) {
+    push(buffer, start, end) {                // se agrupa en bloques de ~40 ms para no crear cientos de nodos por segundo
       if (!this.ctx || !this.registered) return;
-      const frames = Math.floor((end - start) / this.channels);
-      if (frames <= 0) return;
-      const ab = this.ctx.createBuffer(this.channels, frames, this.rate);
-      for (let c = 0; c < this.channels; c++) {
-        const out = ab.getChannelData(c);
-        for (let i = 0, k = start + c; i < frames; i++, k += this.channels) out[i] = buffer[k];
+      const ch = this.channels;
+      if (!this.acc || this.accRate !== this.rate) { this.acc = new Float32Array(this.rate * ch); this.accPos = 0; this.accRate = this.rate; this.chunk = Math.floor(this.rate * 0.04) * ch; }
+      for (let i = start; i < end; i++) {
+        this.acc[this.accPos++] = buffer[i];
+        if (this.accPos >= this.chunk) this.flush();
       }
+    }
+    flush() {
+      const ch = this.channels, frames = Math.floor(this.accPos / ch);
+      if (frames <= 0) { this.accPos = 0; return; }
+      const ab = this.ctx.createBuffer(ch, frames, this.rate);
+      for (let c = 0; c < ch; c++) { const out = ab.getChannelData(c); for (let i = 0, k = c; i < frames; i++, k += ch) out[i] = this.acc[k]; }
+      this.accPos = 0;
       const src = this.ctx.createBufferSource();
       src.buffer = ab; src.connect(this.gain);
       const now = this.ctx.currentTime;
-      if (this.nextTime < now + 0.01) this.nextTime = now + 0.03;     // se vació: reengancha con un pequeño margen
+      if (this.nextTime < now + 0.01) this.nextTime = now + 0.05;
       src.start(this.nextTime);
       this.nextTime += frames / this.rate;
     }
-    remainingBuffer() {                      // muestras entrelazadas aún por sonar (a la tasa del núcleo)
+    remainingBuffer() {
       if (!this.ctx) return 0;
       const secs = Math.max(0, this.nextTime - this.ctx.currentTime);
-      return Math.floor(secs * this.rate) * this.channels;
+      return Math.floor(secs * this.rate) * this.channels + (this.accPos || 0);
     }
     destroy() { try { this.ctx?.close?.(); } catch {} this.ctx = null; this.gain = null; }
+  }
+
+  // Busca las marcas estándar de cartucho (EEPROM_V, SRAM_V, FLASH...) -> 3 EEPROM, 1 SRAM, 2 FLASH, 0 desconocido
+  function detectSaveType(rom) {
+    const has = str => { const n = str.length, c0 = str.charCodeAt(0); outer: for (let i = 0, L = rom.length - n; i < L; i++) { if (rom[i] !== c0) continue; for (let j = 1; j < n; j++) if (rom[i + j] !== str.charCodeAt(j)) continue outer; return true; } return false; };
+    if (has('FLASH1M_V') || has('FLASH512_V') || has('FLASH_V')) return 2;
+    if (has('EEPROM_V')) return 3;
+    if (has('SRAM_V') || has('SRAM_F_V')) return 1;
+    return 0;
   }
 
   async function fetchBios(url) {
@@ -162,19 +175,36 @@
       core.attachAudioHandler(sound);
       core.attachSpeedHandler(pct => { speedPct = pct; opts.onSpeed?.(pct); });
       core.attachPlayStatusHandler(status => { playing = !!status; opts.onStatus?.(playing ? 'play' : 'pause'); });
+      const lastSaved = new Map();
       core.attachSaveExportHandler((name, data) => {
         const key = saveKeyPrefix + name;
-        try { savePut(key, Array.from(data)); } catch {}
+        try {
+          const copy = Uint8Array.from(data);
+          const prev = lastSaved.get(key);
+          if (prev && prev.length === copy.length) { let same = true; for (let i = 0; i < copy.length; i++) if (prev[i] !== copy[i]) { same = false; break; } if (same) return; }
+          lastSaved.set(key, copy);
+          savePut(key, copy);
+          if (!name.startsWith('TYPE_')) opts.onSave?.();
+        } catch {}
       });
+      let detectedType = 0, lastFound = false;
       core.attachSaveImportHandler((name, ok, fail) => {
-        saveGet(saveKeyPrefix + name).then(value => (value ? ok(value) : fail()), () => fail());
+        saveGet(saveKeyPrefix + name).then(value => { lastFound = !!value; return value ? ok(value) : fail(); }, () => fail()).then(() => {
+          // Sin partida previa: fija el tipo de memoria según las marcas del cartucho para que SIEMPRE se pueda guardar.
+          if (!name.startsWith('TYPE_') && detectedType) { try { if (!core.IOCore.saves.saveType && !lastFound) core.IOCore.saves.referenceSave(detectedType); } catch {} }
+        });
       });
 
+      const flush = () => { try { if (!destroyed && playing) core.exportSave(); } catch {} };
+      const autosave = setInterval(flush, 4000);
+      const onHide = () => flush();
+      window.addEventListener('pagehide', onHide);
+      document.addEventListener('visibilitychange', () => { if (document.hidden) flush(); });
       const loop = () => { if (!destroyed) core.timerCallback((performance.now() - t0) >>> 0); };
       const engine = {
         core, screen, sound,
         setSaveKey(prefix) { saveKeyPrefix = prefix || ''; },
-        load(rom) { core.attachROM(rom instanceof Uint8Array ? rom : new Uint8Array(rom)); },
+        load(rom) { detectedType = detectSaveType(rom instanceof Uint8Array ? rom : new Uint8Array(rom)); core.attachROM(rom instanceof Uint8Array ? rom : new Uint8Array(rom)); },
         start() {
           if (destroyed) return;
           sound.ensureContext(); sound.resume();
@@ -182,6 +212,7 @@
           core.play();
           if (!timer) timer = setInterval(loop, 8);
         },
+        saveNow() { flush(); },
         pause() { core.pause(); if (timer) { clearInterval(timer); timer = 0; } },
         resume() { if (!destroyed) engine.start(); },
         restart() { core.restart(); },
@@ -198,7 +229,8 @@
         frames: () => screen.frames,
         async deleteSave() { /* usa la clave del juego actual */ const n = core.getGameName?.(); if (n) await saveDelete(saveKeyPrefix + n); },
         destroy() {
-          destroyed = true;
+          try { flush(); } catch {}
+          destroyed = true; clearInterval(autosave); window.removeEventListener('pagehide', onHide);
           if (timer) clearInterval(timer);
           timer = 0;
           try { core.pause(); core.stop(); } catch {}

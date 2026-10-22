@@ -7,7 +7,7 @@
 (() => {
   'use strict';
   const GBA_W = 240, GBA_H = 160;
-  const DB_NAME = 'arcadia-gba', DB_VERSION = 2, STORE = 'saves';
+  const DB_NAME = 'arcadia-gba', STORE = 'saves';
 
   /* ── Guardados de batería (SRAM/Flash/EEPROM) en IndexedDB, con copia en memoria ── */
   const memorySaves = new Map();
@@ -16,11 +16,10 @@
     if (dbPromise) return dbPromise;
     dbPromise = new Promise(resolve => {
       try {
-        const req = indexedDB.open(DB_NAME, DB_VERSION);
-        req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE); };
-        req.onsuccess = () => { const db = req.result; db.onversionchange = () => { try { db.close(); } catch {} }; resolve(db); };
-        req.onerror = () => { console.warn('[Arcadia GBA] IndexedDB no disponible; se usará memoria temporal.', req.error); resolve(null); };
-        req.onblocked = () => { console.warn('[Arcadia GBA] Actualización de guardados bloqueada por otra pestaña.'); resolve(null); };
+        const req = indexedDB.open(DB_NAME, 1);
+        req.onupgradeneeded = () => req.result.createObjectStore(STORE);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(null);
       } catch { resolve(null); }
     });
     return dbPromise;
@@ -30,8 +29,7 @@
     if (!db) return memorySaves.get(key) || null;
     return new Promise(resolve => {
       try {
-        if (!db.objectStoreNames.contains(STORE)) { resolve(memorySaves.get(key) || null); return; }
-        const req = db.transaction(STORE, 'readonly').objectStore(STORE).get(key);
+        const req = db.transaction(STORE).objectStore(STORE).get(key);
         req.onsuccess = () => resolve(req.result || null);
         req.onerror = () => resolve(memorySaves.get(key) || null);
       } catch { resolve(memorySaves.get(key) || null); }
@@ -41,21 +39,13 @@
     memorySaves.set(key, value);
     const db = await openDb();
     if (!db) return;
-    try {
-      await new Promise(resolve => {
-        if (!db.objectStoreNames.contains(STORE)) return;
-        const tx = db.transaction(STORE, 'readwrite');
-        tx.objectStore(STORE).put(value, key);
-        tx.oncomplete = () => resolve(true);
-        tx.onerror = tx.onabort = () => resolve(false);
-      });
-    } catch {}
+    try { db.transaction(STORE, 'readwrite').objectStore(STORE).put(value, key); } catch {}
   }
   async function saveDelete(key) {
     memorySaves.delete(key);
     const db = await openDb();
     if (!db) return;
-    try { if (db.objectStoreNames.contains(STORE)) db.transaction(STORE, 'readwrite').objectStore(STORE).delete(key); } catch {}
+    try { db.transaction(STORE, 'readwrite').objectStore(STORE).delete(key); } catch {}
   }
 
   /* ── Vídeo: el núcleo entrega RGB 240×160; se pinta en el siguiente fotograma de pantalla ── */
@@ -70,9 +60,9 @@
       this.tick = this.tick.bind(this);
       this.raf = requestAnimationFrame(this.tick);
     }
-    copyBuffer(rgb) {                       // llamado por el núcleo en cada cuadro
-      if (!this.pending) this.pending = new Uint8Array(GBA_W * GBA_H * 3);
-      this.pending.set(rgb);
+    copyBuffer(rgb) {                       // el núcleo entrega RGB; se convierte una sola vez a RGBA
+      const dst = this.image.data;
+      for (let i = 0, j = 0, n = GBA_W * GBA_H * 3; i < n; i += 3, j += 4) { dst[j] = rgb[i]; dst[j + 1] = rgb[i + 1]; dst[j + 2] = rgb[i + 2]; }
       this.dirty = true;
     }
     tick() {
@@ -80,8 +70,6 @@
       this.raf = requestAnimationFrame(this.tick);
       if (!this.dirty) return;
       this.dirty = false;
-      const src = this.pending, dst = this.image.data;
-      for (let i = 0, j = 0, n = GBA_W * GBA_H * 3; i < n; i += 3, j += 4) { dst[j] = src[i]; dst[j + 1] = src[i + 1]; dst[j + 2] = src[i + 2]; }
       this.ctx.putImageData(this.image, 0, 0);
       this.frames++;
     }
@@ -91,7 +79,7 @@
   /* ── Audio: cola de buffers programados con WebAudio (sin Workers; la reproducción no depende del hilo principal) ── */
   class Sound {
     constructor() {
-      this.ctx = null; this.gain = null; this.limiter = null; this.volume = 0.32; this.muted = false;
+      this.ctx = null; this.gain = null; this.volume = 1; this.muted = false;
       this.channels = 2; this.rate = 44100; this.nextTime = 0; this.registered = false;
     }
     ensureContext() {
@@ -101,15 +89,7 @@
       try {
         this.ctx = new Ctx({ latencyHint: 'interactive' });
         this.gain = this.ctx.createGain();
-        // Keep harsh GBA samples below full-scale; compressor catches sudden peaks.
-        this.limiter = this.ctx.createDynamicsCompressor();
-        this.limiter.threshold.value = -10;
-        this.limiter.knee.value = 8;
-        this.limiter.ratio.value = 8;
-        this.limiter.attack.value = 0.003;
-        this.limiter.release.value = 0.12;
-        this.gain.connect(this.limiter);
-        this.limiter.connect(this.ctx.destination);
+        this.gain.connect(this.ctx.destination);
         this.applyVolume();
       } catch { this.ctx = null; return false; }
       return true;
@@ -123,34 +103,49 @@
       this.channels = channels | 0 || 2; this.rate = Math.max(8000, Math.min(96000, Math.round(sampleRate) || 44100));
       this.ensureContext();
     }
-    register() { this.registered = true; this.nextTime = 0; }
+    register() { this.registered = true; this.nextTime = 0; this.accPos = 0; }
     unregister() { this.registered = false; }
     setBufferSpace(samples) {                // relleno de silencio inicial para estabilizar
       if (!this.ctx || !this.registered || samples <= 0) return;
       this.push(new Float32Array(Math.min(samples, this.rate * this.channels)), 0, Math.min(samples, this.rate * this.channels));
     }
-    push(buffer, start, end) {
+    push(buffer, start, end) {                // se agrupa en bloques de ~40 ms para no crear cientos de nodos por segundo
       if (!this.ctx || !this.registered) return;
-      const frames = Math.floor((end - start) / this.channels);
-      if (frames <= 0) return;
-      const ab = this.ctx.createBuffer(this.channels, frames, this.rate);
-      for (let c = 0; c < this.channels; c++) {
-        const out = ab.getChannelData(c);
-        for (let i = 0, k = start + c; i < frames; i++, k += this.channels) out[i] = buffer[k];
+      const ch = this.channels;
+      if (!this.acc || this.accRate !== this.rate) { this.acc = new Float32Array(this.rate * ch); this.accPos = 0; this.accRate = this.rate; this.chunk = Math.floor(this.rate * 0.04) * ch; }
+      for (let i = start; i < end; i++) {
+        this.acc[this.accPos++] = buffer[i];
+        if (this.accPos >= this.chunk) this.flush();
       }
+    }
+    flush() {
+      const ch = this.channels, frames = Math.floor(this.accPos / ch);
+      if (frames <= 0) { this.accPos = 0; return; }
+      const ab = this.ctx.createBuffer(ch, frames, this.rate);
+      for (let c = 0; c < ch; c++) { const out = ab.getChannelData(c); for (let i = 0, k = c; i < frames; i++, k += ch) out[i] = this.acc[k]; }
+      this.accPos = 0;
       const src = this.ctx.createBufferSource();
       src.buffer = ab; src.connect(this.gain);
       const now = this.ctx.currentTime;
-      if (this.nextTime < now + 0.01) this.nextTime = now + 0.03;     // se vació: reengancha con un pequeño margen
+      if (this.nextTime < now + 0.01) this.nextTime = now + 0.05;
       src.start(this.nextTime);
       this.nextTime += frames / this.rate;
     }
-    remainingBuffer() {                      // muestras entrelazadas aún por sonar (a la tasa del núcleo)
+    remainingBuffer() {
       if (!this.ctx) return 0;
       const secs = Math.max(0, this.nextTime - this.ctx.currentTime);
-      return Math.floor(secs * this.rate) * this.channels;
+      return Math.floor(secs * this.rate) * this.channels + (this.accPos || 0);
     }
-    destroy() { try { this.ctx?.close?.(); } catch {} this.ctx = null; this.gain = null; this.limiter = null; }
+    destroy() { try { this.ctx?.close?.(); } catch {} this.ctx = null; this.gain = null; }
+  }
+
+  // Busca las marcas estándar de cartucho (EEPROM_V, SRAM_V, FLASH...) -> 3 EEPROM, 1 SRAM, 2 FLASH, 0 desconocido
+  function detectSaveType(rom) {
+    const has = str => { const n = str.length, c0 = str.charCodeAt(0); outer: for (let i = 0, L = rom.length - n; i < L; i++) { if (rom[i] !== c0) continue; for (let j = 1; j < n; j++) if (rom[i + j] !== str.charCodeAt(j)) continue outer; return true; } return false; };
+    if (has('FLASH1M_V') || has('FLASH512_V') || has('FLASH_V')) return 2;
+    if (has('EEPROM_V')) return 3;
+    if (has('SRAM_V') || has('SRAM_F_V')) return 1;
+    return 0;
   }
 
   async function fetchBios(url) {
@@ -180,19 +175,36 @@
       core.attachAudioHandler(sound);
       core.attachSpeedHandler(pct => { speedPct = pct; opts.onSpeed?.(pct); });
       core.attachPlayStatusHandler(status => { playing = !!status; opts.onStatus?.(playing ? 'play' : 'pause'); });
+      const lastSaved = new Map();
       core.attachSaveExportHandler((name, data) => {
         const key = saveKeyPrefix + name;
-        try { savePut(key, Array.from(data)); } catch {}
+        try {
+          const copy = Uint8Array.from(data);
+          const prev = lastSaved.get(key);
+          if (prev && prev.length === copy.length) { let same = true; for (let i = 0; i < copy.length; i++) if (prev[i] !== copy[i]) { same = false; break; } if (same) return; }
+          lastSaved.set(key, copy);
+          savePut(key, copy);
+          if (!name.startsWith('TYPE_')) opts.onSave?.();
+        } catch {}
       });
+      let detectedType = 0, lastFound = false;
       core.attachSaveImportHandler((name, ok, fail) => {
-        saveGet(saveKeyPrefix + name).then(value => (value ? ok(value) : fail()), () => fail());
+        saveGet(saveKeyPrefix + name).then(value => { lastFound = !!value; return value ? ok(value) : fail(); }, () => fail()).then(() => {
+          // Sin partida previa: fija el tipo de memoria según las marcas del cartucho para que SIEMPRE se pueda guardar.
+          if (!name.startsWith('TYPE_') && detectedType) { try { if (!core.IOCore.saves.saveType && !lastFound) core.IOCore.saves.referenceSave(detectedType); } catch {} }
+        });
       });
 
+      const flush = () => { try { if (!destroyed && playing) core.exportSave(); } catch {} };
+      const autosave = setInterval(flush, 4000);
+      const onHide = () => flush();
+      window.addEventListener('pagehide', onHide);
+      document.addEventListener('visibilitychange', () => { if (document.hidden) flush(); });
       const loop = () => { if (!destroyed) core.timerCallback((performance.now() - t0) >>> 0); };
       const engine = {
         core, screen, sound,
         setSaveKey(prefix) { saveKeyPrefix = prefix || ''; },
-        load(rom) { core.attachROM(rom instanceof Uint8Array ? rom : new Uint8Array(rom)); },
+        load(rom) { detectedType = detectSaveType(rom instanceof Uint8Array ? rom : new Uint8Array(rom)); core.attachROM(rom instanceof Uint8Array ? rom : new Uint8Array(rom)); },
         start() {
           if (destroyed) return;
           sound.ensureContext(); sound.resume();
@@ -200,6 +212,7 @@
           core.play();
           if (!timer) timer = setInterval(loop, 8);
         },
+        saveNow() { flush(); },
         pause() { core.pause(); if (timer) { clearInterval(timer); timer = 0; } },
         resume() { if (!destroyed) engine.start(); },
         restart() { core.restart(); },
@@ -216,7 +229,8 @@
         frames: () => screen.frames,
         async deleteSave() { /* usa la clave del juego actual */ const n = core.getGameName?.(); if (n) await saveDelete(saveKeyPrefix + n); },
         destroy() {
-          destroyed = true;
+          try { flush(); } catch {}
+          destroyed = true; clearInterval(autosave); window.removeEventListener('pagehide', onHide);
           if (timer) clearInterval(timer);
           timer = 0;
           try { core.pause(); core.stop(); } catch {}
