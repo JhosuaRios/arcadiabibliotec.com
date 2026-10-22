@@ -1,0 +1,1 @@
+1.7.0: reloj de emulacion compartido timer+rAF.

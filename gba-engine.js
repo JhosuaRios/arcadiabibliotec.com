@@ -204,7 +204,19 @@
       const onHide = () => flush();
       window.addEventListener('pagehide', onHide);
       document.addEventListener('visibilitychange', () => { if (document.hidden) flush(); });
-      const loop = () => { if (!destroyed) core.timerCallback((performance.now() - t0) >>> 0); };
+      // Reloj compartido: tanto el temporizador como requestAnimationFrame avanzan la emulación SOLO por el tiempo que se debe.
+      // Así, si el navegador retrasa los temporizadores justo al tocar la pantalla (Android), el cuadro de animación toma el relevo.
+      const SLICE = 8; let last = performance.now(), owed = 0, raf = 0;
+      const pump = () => {
+        if (destroyed || !timer) return;
+        const now = performance.now();
+        owed += Math.min(now - last, 100); last = now;
+        let n = 0;
+        while (owed >= SLICE && n < 6) { core.timerCallback((now - t0) >>> 0); owed -= SLICE; n++; }
+        if (owed > SLICE * 6) owed = 0;
+      };
+      const rafLoop = () => { if (destroyed) return; pump(); raf = requestAnimationFrame(rafLoop); };
+      const loop = pump;
       const engine = {
         core, screen, sound,
         setSaveKey(prefix) { saveKeyPrefix = prefix || ''; },
@@ -214,10 +226,10 @@
           sound.ensureContext(); sound.resume();
           core.enableAudio();
           core.play();
-          if (!timer) timer = setInterval(loop, 8);
+          if (!timer) { last = performance.now(); owed = 0; timer = setInterval(loop, 8); raf = requestAnimationFrame(rafLoop); }
         },
         saveNow() { flush(); },
-        pause() { core.pause(); if (timer) { clearInterval(timer); timer = 0; } },
+        pause() { core.pause(); if (timer) { clearInterval(timer); timer = 0; } cancelAnimationFrame(raf); },
         resume() { if (!destroyed) engine.start(); },
         restart() { core.restart(); },
         isPlaying: () => playing,
@@ -242,7 +254,7 @@
           try { flush(); } catch {}
           destroyed = true; clearInterval(autosave); window.removeEventListener('pagehide', onHide);
           if (timer) clearInterval(timer);
-          timer = 0;
+          timer = 0; cancelAnimationFrame(raf);
           try { core.pause(); core.stop(); } catch {}
           screen.destroy(); sound.destroy();
         }
