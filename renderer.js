@@ -957,10 +957,10 @@ async function openGbaPlayer(gameName='',autoRestore=true){
   $('#gbaStatus').textContent=gameName ? `Selecciona tu ROM .gba de ${gameName} la primera vez.` : 'Elige una ROM .gba para empezar.';
 }
 let gbaEngine=null, gbaLoading=null, gbaWaitKey=null, gbaWaitPad=null, gbaCurrentRom='';
-const GBA_ACTIONS=[['up','Arriba',6],['down','Abajo',7],['left','Izquierda',5],['right','Derecha',4],['a','A',0],['b','B',1],['l','L',9],['r','R',8],['start','Start',3],['select','Select',2]];
+const GBA_ACTIONS=[['up','Arriba',6],['down','Abajo',7],['left','Izquierda',5],['right','Derecha',4],['a','A',0],['b','B',1],['l','L',9],['r','R',8],['start','Start',3],['select','Select',2],['turbo','Turbo',null]];
 const GBA_KEY_OF=Object.fromEntries(GBA_ACTIONS.map(([a,,k])=>[a,k]));
-const gbaDefaultKeys={up:'ArrowUp',down:'ArrowDown',left:'ArrowLeft',right:'ArrowRight',a:'KeyX',b:'KeyZ',l:'KeyA',r:'KeyS',start:'Enter',select:'ShiftLeft'};
-const gbaDefaultPad={up:{button:12},down:{button:13},left:{button:14},right:{button:15},a:{button:0},b:{button:1},l:{button:4},r:{button:5},start:{button:9},select:{button:8}};
+const gbaDefaultKeys={up:'ArrowUp',down:'ArrowDown',left:'ArrowLeft',right:'ArrowRight',a:'KeyX',b:'KeyZ',l:'KeyA',r:'KeyS',start:'Enter',select:'ShiftLeft',turbo:'Space'};
+const gbaDefaultPad={up:{button:12},down:{button:13},left:{button:14},right:{button:15},a:{button:0},b:{button:1},l:{button:4},r:{button:5},start:{button:9},select:{button:8},turbo:{button:7}};
 let gbaKeys={...gbaDefaultKeys}, gbaPadMaps={}, gbaPadIndex=-1;
 try{gbaKeys={...gbaDefaultKeys,...JSON.parse(localStorage.getItem('arcadia-gba-keys')||'{}')};}catch{}
 try{gbaPadMaps=JSON.parse(localStorage.getItem('arcadia-gba-pad-maps')||'{}')||{};}catch{}
@@ -975,7 +975,17 @@ async function ensureGbaCore(){
   if(!gbaLoading)gbaLoading=(async()=>{if(typeof window.GameBoyAdvanceEmulator!=='function')await loadAny(['vendor/gba/iodine-gba.min.js','iodine-gba.min.js','/vendor/gba/iodine-gba.min.js']);if(!window.ArcadiaGBA)await loadAny(['vendor/gba/gba-engine.js','gba-engine.js','/vendor/gba/gba-engine.js']);})().catch(e=>{gbaLoading=null;throw e;});
   await gbaLoading;
 }
+let gbaTurbo=false,gbaUserMuted=false;
+function gbaTurboMult(){let m=2;try{m=Number(localStorage.getItem('arcadia-gba-turbo-mult'))||2;}catch{}return Math.max(1.5,Math.min(5,m));}
+function gbaSetTurbo(on){
+  gbaTurbo=!!on&&!!gbaEngine;
+  if(gbaEngine){gbaEngine.setSpeed(gbaTurbo?gbaTurboMult():1);gbaEngine.setMuted(gbaTurbo||gbaUserMuted);}
+  document.querySelectorAll('[data-gba=turbo]').forEach(b=>b.classList.toggle('latched',gbaTurbo));
+  const el=$('#gbaFps');if(el){el.dataset.turbo=gbaTurbo?'1':'';if(gbaTurbo)el.textContent='⏩ '+gbaTurboMult()+'x';}
+}
+function gbaToggleTurbo(){gbaSetTurbo(!gbaTurbo);}
 function stopGbaEngine(){
+  gbaTurbo=false;document.querySelectorAll('[data-gba=turbo]').forEach(b=>b.classList.remove('latched'));
   window.gbaPadReset?.();
   const fe=$('#gbaFps'); if(fe)fe.hidden=true;
   if(gbaEngine){try{gbaEngine.destroy();}catch{} gbaEngine=null;}
@@ -1001,7 +1011,7 @@ async function loadGbaRom(file, persist=true){
     await ensureGbaCore();
     gbaCurrentRom=file.name; window.ArcadiaGBA.requestPersistence?.();
     const bytes=new Uint8Array(await file.arrayBuffer());
-    const engine=await window.ArcadiaGBA.create(canvas,{biosUrl:await (async()=>{for(const u of ['vendor/gba/bios.bin','bios.bin','/vendor/gba/bios.bin']){try{const r=await fetch(u,{method:'HEAD'});if(r.ok)return u;}catch{}}return 'vendor/gba/bios.bin';})(),saveKeyPrefix:'gba:',legacyPrefix:'rom:'+file.name.replace(/\.[^.]+$/,'')+':',onSave:()=>{const el=$('#gbaStatus');if(el){const t=el.textContent;el.textContent='💾 Partida guardada';setTimeout(()=>{if(el.textContent==='💾 Partida guardada')el.textContent=t;},1500);}},onSpeed:pct=>{if(!gbaEngine||!pct)return;const fps=Math.min(60,Math.round(59.73*pct/100));const el=$('#gbaFps');if(el){el.hidden=false;el.textContent=fps+' FPS';el.className='gba-fps'+(fps<45?' bad':fps<57?' low':'');}$('#gbaStatus').textContent='GBA · '+file.name+' · '+Math.round(pct)+'%';}});
+    const engine=await window.ArcadiaGBA.create(canvas,{biosUrl:await (async()=>{for(const u of ['vendor/gba/bios.bin','bios.bin','/vendor/gba/bios.bin']){try{const r=await fetch(u,{method:'HEAD'});if(r.ok)return u;}catch{}}return 'vendor/gba/bios.bin';})(),saveKeyPrefix:'gba:',legacyPrefix:'rom:'+file.name.replace(/\.[^.]+$/,'')+':',onSave:()=>{const el=$('#gbaStatus');if(el){const t=el.textContent;el.textContent='💾 Partida guardada';setTimeout(()=>{if(el.textContent==='💾 Partida guardada')el.textContent=t;},1500);}},onSpeed:pct=>{if(!gbaEngine||!pct)return;const fps=Math.min(60,Math.round(59.73*pct/100));const el=$('#gbaFps');if(el){el.hidden=false;el.textContent=gbaTurbo?'⏩ '+gbaTurboMult()+'x · '+Math.round(pct)+'%':fps+' FPS';el.className='gba-fps'+(fps<45?' bad':fps<57?' low':'');}$('#gbaStatus').textContent='GBA · '+file.name+' · '+Math.round(pct)+'%';}});
     gbaEngine=engine; engine.load(bytes); engine.start(); engine.sound.resume(); if($('#gbaPause')){$('#gbaPause').dataset.p='';$('#gbaPause').textContent='⏸ Pausa';}
     $('#gbaStatus').textContent='GBA · '+file.name;
     window.gbaTouchApply?.();$('#gbaModal').classList.remove('nes-touch-hidden-kb');
@@ -1014,7 +1024,7 @@ async function loadGbaRom(file, persist=true){
   const modal=$('#gbaModal'), touch=$('#gbaTouch'); if(!touch)return;
   // Controles táctiles GBA: mismo diseño y mismo funcionamiento que los de NES (joystick flotante o botones).
   const KEY={up:6,down:7,left:5,right:4,a:0,b:1,select:2,start:3,l:9,r:8};
-  const setKey=(name,on)=>{const k=KEY[name];if(k===undefined||!gbaEngine)return;on?gbaEngine.keyDown(k):gbaEngine.keyUp(k);};
+  const setKey=(name,on)=>{if(name==='turbo'){if(on)gbaToggleTurbo();return;}const k=KEY[name];if(k===undefined||!gbaEngine)return;on?gbaEngine.keyDown(k):gbaEngine.keyUp(k);};
   const getMode=()=>{let m=null;try{m=localStorage.getItem('arcadia-gba-touch-mode')||localStorage.getItem('arcadia-nes-touch-mode');}catch{}return m==='buttons'?'buttons':'joystick';};
   const applyMode=()=>{
     touch.dataset.controlMode=getMode();
@@ -1098,6 +1108,7 @@ async function loadGbaRom(file, persist=true){
   $('#gbaPadSelect')?.addEventListener('change',e=>{gbaPadIndex=Number(e.target.value);window.gbaRenderSettings();});
   window.addEventListener('gamepadconnected',()=>setTimeout(window.gbaRenderSettings,100));
   $('#gbaTouchMode')?.addEventListener('change',e=>{const m=e.target.value==='buttons'?'buttons':'joystick';touch.dataset.controlMode=m;try{localStorage.setItem('arcadia-gba-touch-mode',m);}catch{}joyReset();});
+  const tm=$('#gbaTurboMult');if(tm){try{tm.value=localStorage.getItem('arcadia-gba-turbo-mult')||'2';}catch{}tm.addEventListener('change',e=>{try{localStorage.setItem('arcadia-gba-turbo-mult',e.target.value);}catch{}if(gbaTurbo)gbaSetTurbo(true);});}
   $('#gbaTouchSize')?.addEventListener('input',e=>{touch.style.setProperty('--touch-size',e.target.value);saveLayout();});
   const stopEdit=()=>{window.gbaSetEditing(false);$('#gbaEditDone').hidden=true;panel.classList.remove('hide');};
   $('#gbaEditLayout')?.addEventListener('click',()=>{window.gbaSetEditing(true);panel.classList.add('hide');$('#gbaEditDone').hidden=false;});
@@ -1129,11 +1140,13 @@ async function loadGbaRom(file, persist=true){
     if(e.key==='Escape')return;
     if(e.target&&e.target.matches&&e.target.matches('select,input[type=range]'))return;
     e.stopImmediatePropagation();
-    const act=gbaActionByCode(e.code),k=act?GBA_KEY_OF[act]:undefined;
-    if(k===undefined||!gbaEngine)return;
+    const act=gbaActionByCode(e.code);
+    if(act==='turbo'){e.preventDefault();if(!e.repeat&&gbaEngine)gbaToggleTurbo();return;}
+    const k=act?GBA_KEY_OF[act]:undefined;
+    if(k==null||!gbaEngine)return;
     e.preventDefault();modal.classList.add('nes-touch-hidden-kb');if(!e.repeat)gbaEngine.keyDown(k);
   },true);
-  document.addEventListener('keyup',e=>{if(!gbaOpen())return;e.stopImmediatePropagation();const act=gbaActionByCode(e.code),k=act?GBA_KEY_OF[act]:undefined;if(k!==undefined&&gbaEngine)gbaEngine.keyUp(k);},true);
+  document.addEventListener('keyup',e=>{if(!gbaOpen())return;e.stopImmediatePropagation();const act=gbaActionByCode(e.code),k=act?GBA_KEY_OF[act]:undefined;if(k!=null&&gbaEngine)gbaEngine.keyUp(k);},true);
   // Mando: asignaciones por mando (editables en ⚙ Controles). Stick izquierdo siempre mueve.
   const held=new Set();
   window.pollGbaPad=function(){
@@ -1150,12 +1163,14 @@ async function loadGbaRom(file, persist=true){
     if(!gbaEngine)return;
     const map=gbaPadMapFor(gp),want=new Set();
     for(const [a,,k] of GBA_ACTIONS){const bd=map[a];if(!bd)continue;
-      if(bd.button!=null?gp.buttons[bd.button]?.pressed:(bd.axis!=null&&(gp.axes[bd.axis]||0)*bd.value>.5))want.add(k);}
+      const on=bd.button!=null?gp.buttons[bd.button]?.pressed:(bd.axis!=null&&(gp.axes[bd.axis]||0)*bd.value>.5);
+      if(a==='turbo'){if(on&&!held.has('turbo'))gbaToggleTurbo();on?held.add('turbo'):held.delete('turbo');continue;}
+      if(on)want.add(k);}
     const ax=gp.axes[0]||0,ay=gp.axes[1]||0;
     if(ax<-.5)want.add(5);if(ax>.5)want.add(4);if(ay<-.5)want.add(6);if(ay>.5)want.add(7);
     for(const k of want)if(!held.has(k))gbaEngine.keyDown(k);
-    for(const k of [...held])if(!want.has(k))gbaEngine.keyUp(k);
-    held.clear();want.forEach(k=>held.add(k));
+    for(const k of [...held])if(k!=='turbo'&&!want.has(k))gbaEngine.keyUp(k);
+    want.forEach(k=>held.add(k));
   };
   document.addEventListener('visibilitychange',()=>{if(!gbaEngine)return;if(document.hidden){gbaEngine.pause();gbaEngine.releaseAll();window.gbaPadReset?.();}else if($('#gbaModal')?.classList.contains('open'))gbaEngine.resume();});
 })();
@@ -1164,7 +1179,7 @@ $('#gbaChooseBig')?.addEventListener('click',()=>$('#gbaRomInput').click());
 $('#gbaRomInput')?.addEventListener('change',event=>{loadGbaRom(event.target.files?.[0]);event.target.value='';});
 $('#gbaExit')?.addEventListener('click',closeGbaPlayer);
 $('#gbaPause')?.addEventListener('click',()=>{if(!gbaEngine)return;const b=$('#gbaPause');if(b.dataset.p==='1'){gbaEngine.resume();b.dataset.p='';b.textContent='⏸ Pausa';}else{gbaEngine.pause();gbaEngine.releaseAll();b.dataset.p='1';b.textContent='▶ Seguir';}});
-$('#gbaMute')?.addEventListener('click',()=>{if(!gbaEngine)return;const b=$('#gbaMute');const m=b.dataset.m!=='1';gbaEngine.setMuted(m);gbaEngine.sound.resume();b.dataset.m=m?'1':'';b.textContent=m?'🔇 Silencio':'🔊 Sonido';});
+$('#gbaMute')?.addEventListener('click',()=>{if(!gbaEngine)return;const b=$('#gbaMute');const m=b.dataset.m!=='1';gbaUserMuted=m;gbaEngine.setMuted(m||gbaTurbo);gbaEngine.sound.resume();b.dataset.m=m?'1':'';b.textContent=m?'🔇 Silencio':'🔊 Sonido';});
 $('#gbaSave')?.addEventListener('click',()=>{if(gbaEngine){gbaEngine.saveNow();const el=$('#gbaStatus');el.textContent='💾 Guardado';}});
 $('#gbaReset')?.addEventListener('click',()=>{if(gbaEngine){gbaEngine.restart();gbaEngine.start();}});
 $('#gbaFullscreen')?.addEventListener('click',()=>{const target=$('#gbaModal');if(!document.fullscreenElement)target.requestFullscreen?.().catch(()=>{});else document.exitFullscreen?.();});
@@ -1173,7 +1188,7 @@ document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('#gbaModa
 
 // News badge is lit only until the user opens the current release notes.
 (function setupArcadiaNews(){
-  const version='1.8.0';
+  const version='1.9.0';
   const dot=$('#newsButton'), panel=$('#newsPanel');
   if(!dot||!panel)return;
   let seen=''; try{seen=localStorage.getItem('arcadia-news-seen-version')||'';}catch{}

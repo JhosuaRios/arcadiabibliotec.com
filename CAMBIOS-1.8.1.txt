@@ -1,0 +1,1 @@
+1.8.1: zona del joystick GBA limitada bajo el boton L.
