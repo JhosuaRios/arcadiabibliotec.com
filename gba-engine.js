@@ -195,6 +195,7 @@
         });
       });
 
+      const downAt = new Array(10).fill(0), relTimers = new Array(10).fill(0);
       const flush = () => { try { if (!destroyed && playing) core.exportSave(); } catch {} };
       const autosave = setInterval(flush, 4000);
       const onHide = () => flush();
@@ -219,9 +220,15 @@
         isPlaying: () => playing,
         speed: () => speedPct,
         title: () => core.getGameName?.() || '',
-        keyDown(k) { core.keyDown(k | 0); },
-        keyUp(k) { core.keyUp(k | 0); },
-        releaseAll() { for (let k = 0; k < 10; k++) core.keyUp(k); },
+        // Una pulsación dura mínimo ~70 ms para que el juego (que lee los botones una vez por cuadro) nunca se pierda un toque rápido.
+        keyDown(k) { k |= 0; if (relTimers[k]) { clearTimeout(relTimers[k]); relTimers[k] = 0; } if (!downAt[k]) { downAt[k] = performance.now(); core.keyDown(k); } },
+        keyUp(k) {
+          k |= 0; if (!downAt[k]) return;
+          const wait = 70 - (performance.now() - downAt[k]);
+          const rel = () => { relTimers[k] = 0; downAt[k] = 0; core.keyUp(k); };
+          if (wait > 0) { if (!relTimers[k]) relTimers[k] = setTimeout(rel, wait); } else rel();
+        },
+        releaseAll() { for (let k = 0; k < 10; k++) { if (relTimers[k]) clearTimeout(relTimers[k]); relTimers[k] = 0; downAt[k] = 0; core.keyUp(k); } },
         setVolume(v) { sound.setVolume(v); },
         setMuted(m) { sound.setMuted(m); },
         setSmoothing(on) { canvas.style.imageRendering = on ? 'auto' : 'pixelated'; },

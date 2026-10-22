@@ -999,7 +999,7 @@ async function loadGbaRom(file, persist=true){
 }
 (function gbaInput(){
   const pad=$('#gbaPad'); if(!pad)return;
-  const press=(btn,on)=>{const k=+btn.dataset.k; btn.classList.toggle('on',on); if(gbaEngine){on?gbaEngine.keyDown(k):gbaEngine.keyUp(k);} if(on&&navigator.vibrate)try{navigator.vibrate(8)}catch{}};
+  const press=(btn,on)=>{const k=+btn.dataset.k; btn.classList.toggle('on',on); if(gbaEngine){on?gbaEngine.keyDown(k):gbaEngine.keyUp(k);}};
   pad.addEventListener('contextmenu',e=>e.preventDefault());
   // Botones sueltos: cada dedo (pointer) controla un botón; se puede deslizar entre botones.
   const active=new Map();
@@ -1010,7 +1010,7 @@ async function loadGbaRom(file, persist=true){
   pad.addEventListener('pointerup',up);pad.addEventListener('pointercancel',up);pad.addEventListener('lostpointercapture',up);
   // Cruceta circular: 8 direcciones por ángulo.
   const dp=$('#gbaDp'); const dirs={u:6,dn:7,l:5,r:4}; let dpId=null; const dpOn=new Set();
-  const dpSet=want=>{for(const n in dirs){const has=want.has(n),was=dpOn.has(n);if(has&&!was){dpOn.add(n);gbaEngine?.keyDown(dirs[n]);dp.querySelector('.'+n)?.classList.add('on');if(navigator.vibrate)try{navigator.vibrate(6)}catch{}}else if(!has&&was){dpOn.delete(n);gbaEngine?.keyUp(dirs[n]);dp.querySelector('.'+n)?.classList.remove('on');}}};
+  const dpSet=want=>{for(const n in dirs){const has=want.has(n),was=dpOn.has(n);if(has&&!was){dpOn.add(n);gbaEngine?.keyDown(dirs[n]);dp.querySelector('.'+n)?.classList.add('on');}else if(!has&&was){dpOn.delete(n);gbaEngine?.keyUp(dirs[n]);dp.querySelector('.'+n)?.classList.remove('on');}}};
   const dpCalc=e=>{const r=dp.getBoundingClientRect();const dx=(e.clientX-(r.left+r.width/2))/(r.width/2),dy=(e.clientY-(r.top+r.height/2))/(r.height/2);const want=new Set();if(Math.hypot(dx,dy)>.22){const t=.38;if(dx>t)want.add('r');if(dx<-t)want.add('l');if(dy>t)want.add('dn');if(dy<-t)want.add('u');}dpSet(want);};
   dp.addEventListener('pointerdown',e=>{e.preventDefault();if(dpId!==null)return;dpId=e.pointerId;try{dp.setPointerCapture(e.pointerId)}catch{}dpCalc(e);});
   dp.addEventListener('pointermove',e=>{if(e.pointerId===dpId)dpCalc(e);});
@@ -1061,7 +1061,7 @@ document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('#gbaModa
 
 // News badge is lit only until the user opens the current release notes.
 (function setupArcadiaNews(){
-  const version='1.6.3';
+  const version='1.6.4';
   const dot=$('#newsButton'), panel=$('#newsPanel');
   if(!dot||!panel)return;
   let seen=''; try{seen=localStorage.getItem('arcadia-news-seen-version')||'';}catch{}
