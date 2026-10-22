@@ -1005,8 +1005,16 @@ async function loadGbaRom(file, persist=true){
   // Botones: igual que la cruceta (un listener directo por botón, sin pointermove ni búsquedas de elemento: más ligero).
   const btnHeld=new Map();
   pad.querySelectorAll('button[data-k]').forEach(btn=>{
-    const rel=e=>{if(btnHeld.get(btn)===e.pointerId||e.type==='lostpointercapture'){btnHeld.delete(btn);press(btn,false);}};
-    btn.addEventListener('pointerdown',e=>{e.preventDefault();if(btnHeld.has(btn))return;btnHeld.set(btn,e.pointerId);try{btn.setPointerCapture(e.pointerId)}catch{}press(btn,true);});
+    // Cada pulsación se libera exactamente una vez. En Android, pointerup suele ir seguido
+    // de lostpointercapture; antes ambos eventos llamaban a keyUp y podían duplicar trabajo.
+    const rel=e=>{
+      const activeId=btnHeld.get(btn);
+      if(activeId===undefined)return;
+      if(e.pointerId!==undefined && activeId!==e.pointerId && e.type!=='lostpointercapture')return;
+      btnHeld.delete(btn);
+      press(btn,false);
+    };
+    btn.addEventListener('pointerdown',e=>{e.preventDefault();if(btnHeld.has(btn))return;btnHeld.set(btn,e.pointerId);try{btn.setPointerCapture(e.pointerId)}catch{}press(btn,true);},{passive:false});
     btn.addEventListener('pointerup',rel);btn.addEventListener('pointercancel',rel);btn.addEventListener('lostpointercapture',rel);
   });
   // Cruceta circular: 8 direcciones por ángulo.

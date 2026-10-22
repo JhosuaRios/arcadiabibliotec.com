@@ -1,0 +1,4 @@
+Arcadia Web 1.6.8
+- GBA Android: evita doble liberación de botones cuando pointerup va seguido de lostpointercapture.
+- Mantiene la semántica de pulsación y liberación; no usa entradas invisibles ni mantiene botones artificialmente presionados.
+- Pendiente de medir FPS en un Android físico.
