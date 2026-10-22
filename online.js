@@ -1369,6 +1369,7 @@
   window.arcadiaOnline = {
     isGuest: () => G.active,
     isLockstep: () => LS.active,
+    isHosting: () => !!H.active,
     guestButton,
     hostButton: hostButtonNetplay,
     hostPaused(value) { H.paused = !!value; if (H.guest?.connected) sendJson(H.guest.dc, { t: 'paused', v: H.paused }); },

@@ -18,6 +18,33 @@ let previousNesPadState = new Set();
 const defaultNesKeys = {up:'ArrowUp',down:'ArrowDown',left:'ArrowLeft',right:'ArrowRight',a:'s',b:'a',start:'Enter',select:'ControlRight'};
 const defaultNesPadMap = {up:{button:12},down:{button:13},left:{button:14},right:{button:15},a:{button:0},b:{button:1},select:{button:8},start:{button:9}};
 let nesKeys = {...defaultNesKeys};
+// Jugador 2 local: teclado 2 + mandos. Solo activo fuera de salas online.
+const defaultNesKeys2 = {up:'i',down:'k',left:'j',right:'l',a:'p',b:'o',start:'u',select:'y'};
+let nesKeys2 = {...defaultNesKeys2};
+try { nesKeys2 = {...defaultNesKeys2, ...JSON.parse(localStorage.getItem('arcadia-nes-keys2') || '{}')}; } catch {}
+const local2p = {enabled:false, kb1:1, kb2:2, pads:{}, manual:false};
+try { const s = JSON.parse(localStorage.getItem('arcadia-nes-local2p') || '{}'); local2p.enabled = !!s.enabled; if (s.manual) { local2p.manual = true; local2p.kb1 = s.kb1 ?? 1; local2p.kb2 = s.kb2 ?? null; } } catch {}
+function saveLocal2p() { try { localStorage.setItem('arcadia-nes-local2p', JSON.stringify({enabled:local2p.enabled, manual:local2p.manual, kb1:local2p.kb1, kb2:local2p.kb2})); } catch {} }
+function local2pActive() {
+  if (!local2p.enabled) return false;
+  const o = window.arcadiaOnline;
+  return !(o?.isGuest?.() || o?.isLockstep?.() || o?.isHosting?.());
+}
+function connectedPads() { try { return [...(navigator.getGamepads?.() || [])].filter(p => p && p.connected !== false); } catch { return []; } }
+// Asignación automática: 0 mandos → teclado 1 (J1) + teclado 2 (J2); 1 mando → teclado J1, mando J2; 2 mandos → un mando por jugador.
+// En un dispositivo táctil con un solo mando, el mando es J1 (no hay otro dispositivo para J1).
+function autoAssignLocal2p() {
+  const pads = connectedPads(), coarse = window.matchMedia?.('(pointer: coarse)').matches;
+  local2p.pads = {};
+  if (pads.length >= 2) { local2p.kb1 = 1; local2p.kb2 = null; local2p.pads[pads[0].index] = 1; local2p.pads[pads[1].index] = 2; }
+  else if (pads.length === 1) { if (coarse) { local2p.kb1 = null; local2p.kb2 = null; local2p.pads[pads[0].index] = 1; } else { local2p.kb1 = 1; local2p.kb2 = null; local2p.pads[pads[0].index] = 2; } }
+  else { local2p.kb1 = 1; local2p.kb2 = 2; }
+}
+function nesPlayerSet(player, button, down) {
+  if (button == null) return;
+  if (player === 2) { if (nesBrowser && local2pActive()) down ? nesBrowser.nes.buttonDown(2, button) : nesBrowser.nes.buttonUp(2, button); return; }
+  nesPadSet(button, down);
+}
 let nesPadMaps = {};
 let selectedGamepadIndex = -1;
 let waitingForNesKey = null;
@@ -240,6 +267,7 @@ async function launchNesGame(game) {
       if (result !== false) fpsFrames++;
       return result;
     };
+    if (local2p.enabled && !local2p.manual) autoAssignLocal2p();
     applyNesKeys();
     nesBrowser.loadROM(bytes);
     fpsTimer = setInterval(() => {
@@ -307,14 +335,29 @@ function applyNesKeys() {
   };
   const ids = {a:window.jsnes.Controller.BUTTON_A,b:window.jsnes.Controller.BUTTON_B,start:window.jsnes.Controller.BUTTON_START,select:window.jsnes.Controller.BUTTON_SELECT,up:window.jsnes.Controller.BUTTON_UP,down:window.jsnes.Controller.BUTTON_DOWN,left:window.jsnes.Controller.BUTTON_LEFT,right:window.jsnes.Controller.BUTTON_RIGHT};
   const keys = {...nesBrowser.keyboard.keys};
-  for (let code = 0; code < 256; code++) if (keys[code]?.[0] === 1) delete keys[code];
-  for (const [action, value] of Object.entries(nesKeys)) { const code = keyCode(value); if (code) keys[code] = [1,ids[action],value]; }
+  for (let code = 0; code < 256; code++) if (keys[code] && (keys[code][0] === 1 || keys[code][0] === 2)) delete keys[code];
+  const multi = local2pActive();
+  const p1 = multi ? local2p.kb1 : 1;
+  if (p1) for (const [action, value] of Object.entries(nesKeys)) { const code = keyCode(value); if (code) keys[code] = [p1,ids[action],value]; }
+  if (multi && local2p.kb2) for (const [action, value] of Object.entries(nesKeys2)) { const code = keyCode(value); if (code && !keys[code]) keys[code] = [local2p.kb2,ids[action],value]; }
   nesBrowser.keyboard.setKeys(keys); nesBrowser.keyboard.keys = keys;
-  renderNesKeySettings();
+  renderNesKeySettings(); renderLocal2pSettings();
 }
 function renderNesKeySettings() {
   const labels = {up:'Arriba',down:'Abajo',left:'Izquierda',right:'Derecha',a:'A',b:'B',start:'Start',select:'Select'};
   $('#nesKeyGrid').innerHTML = Object.entries(labels).map(([key,label]) => `<button type="button" data-remap="${key}">${label}<strong>${escapeHtml(nesKeys[key])}</strong></button>`).join('');
+}
+function renderLocal2pSettings() {
+  const box = $('#local2pBox'); if (!box) return;
+  const chk = $('#local2pEnable'); if (chk) chk.checked = local2p.enabled;
+  const opt = (v, cur) => `<option value="${v}" ${String(cur ?? '') === String(v) ? 'selected' : ''}>${v === '' ? 'Sin usar' : 'Jugador ' + v}</option>`;
+  const row = (label, key, cur) => `<label class="nes-config-label">${escapeHtml(label)}<select data-l2p="${key}">${opt(1, cur)}${opt(2, cur)}${opt('', cur)}</select></label>`;
+  let html = row('Teclado 1 (flechas, S, A, Enter…)', 'kb1', local2p.kb1) + row('Teclado 2 (I J K L, P, O, U, Y)', 'kb2', local2p.kb2);
+  connectedPads().forEach(p => { html += row(`Mando ${p.index + 1}: ${(p.id || '').slice(0, 34)}`, 'pad' + p.index, local2p.pads[p.index]); });
+  $('#local2pAssign').innerHTML = local2p.enabled ? html : '';
+  $('#local2pKeys').classList.toggle('hide', !local2p.enabled);
+  const labels = {up:'Arriba',down:'Abajo',left:'Izquierda',right:'Derecha',a:'A',b:'B',start:'Start',select:'Select'};
+  $('#nesKeyGrid2').innerHTML = Object.entries(labels).map(([key,label]) => `<button type="button" data-remap2="${key}">${label}<strong>${escapeHtml(nesKeys2[key])}</strong></button>`).join('');
 }
 function controllerMapFor(pad) { return pad && nesPadMaps[pad.id] ? {...defaultNesPadMap,...nesPadMaps[pad.id]} : {...defaultNesPadMap}; }
 function loadControllerSettings() {
@@ -505,16 +548,22 @@ function prepareGuestControls() {
 }
 function pollNesGamepad() {
   if ((!nesBrowser || !activeNesGameId) && !window.arcadiaOnline?.isGuest()) { previousNesPadState.clear(); return; }
-  const pads = navigator.getGamepads?.() || [];
-  const pad = [...pads].filter(Boolean).find(item => item.index === selectedGamepadIndex);
-  if (!pad) { previousNesPadState.clear(); return; }
-  if (captureGamepadBinding(pad)) { previousNesPadState.clear(); return; }
-  const map=controllerMapFor(pad), pressed=action => mappedPadPressed(pad,map[action]);
-  const axisX=pad.axes?.[0]||0, axisY=pad.axes?.[1]||0;
-  const directions={up:pressed('up')||axisY < -0.55,down:pressed('down')||axisY > 0.55,left:pressed('left')||axisX < -0.55,right:pressed('right')||axisX > 0.55,a:pressed('a'),b:pressed('b'),select:pressed('select'),start:pressed('start')};
-  const next = new Set(Object.entries(directions).filter(([,value])=>value).map(([name])=>`${pad.index}:${name}`));
-  for (const token of next) if (!previousNesPadState.has(token)) nesPadSet(nesPadButtons.get(token.split(':')[1]), true);
-  for (const token of previousNesPadState) if (!next.has(token)) nesPadSet(nesPadButtons.get(token.split(':')[1]), false);
+  const pads = [...(navigator.getGamepads?.() || [])].filter(Boolean);
+  const multi = local2pActive();
+  // Un solo jugador (comportamiento clásico): el mando seleccionado controla al J1.
+  const used = multi ? pads.filter(p => local2p.pads[p.index]) : pads.filter(p => p.index === selectedGamepadIndex);
+  if (!used.length) { if (previousNesPadState.size) { for (const token of previousNesPadState) { const [, player, name] = token.split(':'); nesPlayerSet(Number(player), nesPadButtons.get(name), false); } previousNesPadState.clear(); } return; }
+  const next = new Set();
+  for (const pad of used) {
+    const player = multi ? local2p.pads[pad.index] : 1;
+    if (!multi && captureGamepadBinding(pad)) { previousNesPadState.clear(); return; }
+    const map = controllerMapFor(pad), pressed = action => mappedPadPressed(pad, map[action]);
+    const axisX = pad.axes?.[0] || 0, axisY = pad.axes?.[1] || 0;
+    const directions = {up:pressed('up')||axisY < -0.55,down:pressed('down')||axisY > 0.55,left:pressed('left')||axisX < -0.55,right:pressed('right')||axisX > 0.55,a:pressed('a'),b:pressed('b'),select:pressed('select'),start:pressed('start')};
+    for (const [name, value] of Object.entries(directions)) if (value) next.add(`${pad.index}:${player}:${name}`);
+  }
+  for (const token of next) if (!previousNesPadState.has(token)) { const [, player, name] = token.split(':'); nesPlayerSet(Number(player), nesPadButtons.get(name), true); }
+  for (const token of previousNesPadState) if (!next.has(token)) { const [, player, name] = token.split(':'); nesPlayerSet(Number(player), nesPadButtons.get(name), false); }
   previousNesPadState = next;
 }
 function openAddGame(shouldLaunch = !window.arcadia.isWeb) {
@@ -763,8 +812,8 @@ document.addEventListener('keydown', withErrorToast(async event => {
     event.preventDefault(); event.stopImmediatePropagation();
     const code = displayKeyName(event);
     if (!code) { notify('Elige una tecla normal, una flecha, Enter o espacio.', true); return; }
-    nesKeys[waitingForNesKey] = code; waitingForNesKey = null;
-    try { localStorage.setItem('arcadia-nes-keys', JSON.stringify(nesKeys)); } catch {}
+    if (String(waitingForNesKey).startsWith('2:')) { nesKeys2[waitingForNesKey.slice(2)] = code; waitingForNesKey = null; try { localStorage.setItem('arcadia-nes-keys2', JSON.stringify(nesKeys2)); } catch {} }
+    else { nesKeys[waitingForNesKey] = code; waitingForNesKey = null; try { localStorage.setItem('arcadia-nes-keys', JSON.stringify(nesKeys)); } catch {} }
     applyNesKeys(); notify('Control actualizado.'); return;
   }
   if ($('#gameSession').classList.contains('open')) {
@@ -788,8 +837,14 @@ document.addEventListener('keydown', withErrorToast(async event => {
 window.addEventListener('resize', reportGameViewBounds);
 new ResizeObserver(reportGameViewBounds).observe($('#gameViewport'));
 $('#exitGame').addEventListener('click', withErrorToast(stopGameSession));
-$('#configureNes').addEventListener('click', () => { renderNesKeySettings(); renderGamepadSettings(); $('#nesSettingsPanel').classList.toggle('hide'); });
+$('#configureNes').addEventListener('click', () => { renderNesKeySettings(); renderGamepadSettings(); renderLocal2pSettings(); $('#nesSettingsPanel').classList.toggle('hide'); });
 $('#closeNesSettings').addEventListener('click', () => { waitingForNesKey = null; waitingForPadAction=null; $('#nesSettingsPanel').classList.add('hide'); $('#gameSession').classList.remove('touch-layout-editing'); touchLayoutEditing=false; });
+$('#local2pEnable')?.addEventListener('change', event => { local2p.enabled = event.target.checked; if (local2p.enabled && !local2p.manual) autoAssignLocal2p(); saveLocal2p(); applyNesKeys(); previousNesPadState.clear(); renderLocal2pSettings(); notify(local2p.enabled ? 'Modo de 2 jugadores locales activado.' : 'Modo de 2 jugadores locales desactivado.'); });
+$('#local2pAssign')?.addEventListener('change', event => { const sel = event.target.closest('[data-l2p]'); if (!sel) return; const v = sel.value === '' ? null : Number(sel.value), key = sel.dataset.l2p; if (key === 'kb1') local2p.kb1 = v; else if (key === 'kb2') local2p.kb2 = v; else local2p.pads[Number(key.slice(3))] = v; local2p.manual = true; saveLocal2p(); applyNesKeys(); previousNesPadState.clear(); });
+$('#nesKeyGrid2')?.addEventListener('click', event => { const b = event.target.closest('[data-remap2]'); if (!b) return; waitingForNesKey = '2:' + b.dataset.remap2; notify('Presiona la nueva tecla del Jugador 2.'); });
+$('#resetNesKeys2')?.addEventListener('click', () => { nesKeys2 = {...defaultNesKeys2}; try { localStorage.removeItem('arcadia-nes-keys2'); } catch {} applyNesKeys(); });
+window.addEventListener('gamepadconnected', () => setTimeout(() => { if (local2p.enabled && !local2p.manual) autoAssignLocal2p(); applyNesKeys(); renderLocal2pSettings(); }, 150));
+window.addEventListener('gamepaddisconnected', () => setTimeout(() => { if (local2p.enabled && !local2p.manual) autoAssignLocal2p(); applyNesKeys(); renderLocal2pSettings(); }, 150));
 $('#resetNesKeys').addEventListener('click', () => { nesKeys = {...defaultNesKeys}; try { localStorage.removeItem('arcadia-nes-keys'); } catch {} applyNesKeys(); notify('Controles originales restaurados.'); });
 $('#hideTouchNes').addEventListener('click', () => {
   if (connectedGamepadDetected) { notify('Los controles táctiles se ocultan mientras haya un mando conectado.'); return; }
@@ -1188,7 +1243,7 @@ document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('#gbaModa
 
 // News badge is lit only until the user opens the current release notes.
 (function setupArcadiaNews(){
-  const version='1.9.2';
+  const version='2.0.0';
   const dot=$('#newsButton'), panel=$('#newsPanel');
   if(!dot||!panel)return;
   let seen=''; try{seen=localStorage.getItem('arcadia-news-seen-version')||'';}catch{}
