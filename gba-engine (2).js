@@ -173,7 +173,18 @@
       core.attachBIOS(bios);
       core.attachGraphicsFrameHandler(screen);
       core.attachAudioHandler(sound);
-      core.attachSpeedHandler(pct => { speedPct = pct; opts.onSpeed?.(pct); });
+      let okRuns = 0, reports = 0;
+      const gfx = () => { try { return core.IOCore.gfxRenderer.renderer || core.IOCore.gfxRenderer; } catch { return null; } };
+      core.attachSpeedHandler(pct => {
+        speedPct = pct;
+        const g = gfx();
+        if (g && 'skipLevel' in g && pct > 0 && ++reports > 4) {                 // salto de cuadros automático
+          if (pct < 93 && g.skipLevel < 3) { g.skipLevel++; okRuns = 0; }
+          else if (pct >= 99 && g.skipLevel > 0) { if (++okRuns >= 4) { g.skipLevel--; okRuns = 0; } }
+          else okRuns = 0;
+        }
+        opts.onSpeed?.(pct);
+      });
       core.attachPlayStatusHandler(status => { playing = !!status; opts.onStatus?.(playing ? 'play' : 'pause'); });
       const lastSaved = new Map();
       core.attachSaveExportHandler((name, data) => {
@@ -219,6 +230,7 @@
         restart() { core.restart(); },
         isPlaying: () => playing,
         speed: () => speedPct,
+        skipLevel: () => { const g = gfx(); return g && g.skipLevel || 0; },
         title: () => core.getGameName?.() || '',
         // Una pulsación dura mínimo ~70 ms para que el juego (que lee los botones una vez por cuadro) nunca se pierda un toque rápido.
         keyDown(k) { k |= 0; if (relTimers[k]) { clearTimeout(relTimers[k]); relTimers[k] = 0; } if (!downAt[k]) { downAt[k] = performance.now(); core.keyDown(k); } },
