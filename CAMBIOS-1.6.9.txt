@@ -1,0 +1,1 @@
+1.6.9: controles GBA sin repintado (capas compuestas).

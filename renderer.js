@@ -1009,14 +1009,14 @@ async function loadGbaRom(file, persist=true){
   const joyUpdate=e=>{
     const r=joy.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2;let dx=e.clientX-cx,dy=e.clientY-cy;
     const radius=Math.min(r.width,r.height)*.31,dist=Math.hypot(dx,dy)||1;if(dist>radius){dx=dx/dist*radius;dy=dy/dist*radius;}
-    knob.style.left=(50+dx/r.width*100)+'%';knob.style.top=(50+dy/r.height*100)+'%';
+    knob.style.transform='translate(calc(-50% + '+dx.toFixed(1)+'px),calc(-50% + '+dy.toFixed(1)+'px))';
     const nx=dx/radius,ny=dy/radius,next=new Set();
     if(Math.hypot(nx,ny)>.22){if(nx<-.34)next.add('left');if(nx>.34)next.add('right');if(ny<-.34)next.add('up');if(ny>.34)next.add('down');}
     for(const n of joyOn)if(!next.has(n))setKey(n,false);
     for(const n of next)if(!joyOn.has(n))setKey(n,true);
     joyOn=next;joy.classList.add('active');
   };
-  const joyReset=()=>{for(const n of joyOn)setKey(n,false);joyOn=new Set();joyId=null;knob.style.left='50%';knob.style.top='50%';joy.classList.remove('active','floating');joy.style.cssText=joyRest;};
+  const joyReset=()=>{for(const n of joyOn)setKey(n,false);joyOn=new Set();joyId=null;knob.style.transform='';joy.classList.remove('active','floating');joy.style.cssText=joyRest;};
   touch.addEventListener('contextmenu',e=>e.preventDefault());
   touch.addEventListener('pointerdown',e=>{
     modal.classList.remove('nes-touch-hidden-kb');
@@ -1045,7 +1045,7 @@ async function loadGbaRom(file, persist=true){
   const syncPad=()=>{let c=false;try{c=[...(navigator.getGamepads?.()||[])].some(p=>p&&p.connected!==false);}catch{}modal.classList.toggle('nes-touch-hidden',c);};
   window.addEventListener('gamepadconnected',syncPad);window.addEventListener('gamepaddisconnected',syncPad);syncPad();
   const gbaOpen=()=>!!($('#gbaModal')?.classList.contains('open'));
-  const wake=()=>{if(gbaEngine)gbaEngine.sound.resume();};
+  const wake=()=>{const s=gbaEngine&&gbaEngine.sound;if(s&&s.ctx&&s.ctx.state!=='running')s.resume();};
   document.addEventListener('pointerdown',wake,true);
   document.addEventListener('keydown',e=>{
     if(!gbaOpen())return;
@@ -1088,7 +1088,7 @@ document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('#gbaModa
 
 // News badge is lit only until the user opens the current release notes.
 (function setupArcadiaNews(){
-  const version='1.6.8';
+  const version='1.6.9';
   const dot=$('#newsButton'), panel=$('#newsPanel');
   if(!dot||!panel)return;
   let seen=''; try{seen=localStorage.getItem('arcadia-news-seen-version')||'';}catch{}
