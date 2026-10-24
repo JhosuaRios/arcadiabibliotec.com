@@ -136,6 +136,7 @@
       p.seen = performance.now();
       if (d.t === 'm') { p.mask = (d.m | 0) & 0x3FF; recompute(); }
       else if (d.t === 'hi' && d.name) { p.name = String(d.name).slice(0, 14); renderPanel(); }
+      else if (d.t === 'rom-start' || d.t === 'rom-chunk' || d.t === 'rom-end') romRx(p, d);
     });
     const gone = () => { if (H.pads.get(conn.peer)?.conn === conn) { p.mask = 0; recompute(); H.pads.delete(conn.peer); renderPanel(); } };
     conn.on('close', gone); conn.on('error', gone);
@@ -180,6 +181,60 @@
     H.peer = null; H.code = ''; renderPanel();
   }
 
+
+  /* ───────────── recibir un juego enviado desde el celular ───────────── */
+  const toast = document.createElement('div');
+  toast.id = 'ppToast'; toast.setAttribute('role', 'status');
+  toast.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:400;background:#101a24;color:#eaf3ff;border:1px solid #4d813d;border-radius:14px;padding:12px 20px;font:600 16px system-ui,sans-serif;display:none;max-width:90vw;text-align:center';
+  document.body.appendChild(toast);
+  let toastTimer = 0;
+  function showToast(text, ms) { toast.textContent = text; toast.style.display = 'block'; clearTimeout(toastTimer); if (ms) toastTimer = setTimeout(() => { toast.style.display = 'none'; }, ms); }
+  let rxPatched = false, rxBytes = null;
+  function patchRomReader() {
+    if (rxPatched || !window.arcadia?.readRom) return; rxPatched = true;
+    const orig = window.arcadia.readRom.bind(window.arcadia);
+    window.arcadia.readRom = async ref => (String(ref) === 'phone://rom' && rxBytes) ? rxBytes : orig(ref);
+  }
+  async function launchReceived(name, bytes) {
+    const ext = (name.match(/\.([a-z0-9]+)$/i) || [])[1]?.toLowerCase();
+    closePanel();
+    try {
+      if (ext === 'nes') {
+        patchRomReader(); rxBytes = bytes;
+        if ($('#gbaModal')?.classList.contains('open')) closeGbaPlayer();
+        const clean = name.replace(/\.nes$/i, '');
+        await launchNesGame({ id: 'phone-' + clean.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40), name: clean, platform: 'NES', file: 'phone://rom' });
+      } else if (ext === 'gba' || ext === 'bin') {
+        if ($('#gameSession')?.classList.contains('open')) stopGameSession();
+        await openGbaPlayer(name.replace(/\.(gba|bin)$/i, ''), false);
+        await loadGbaRom(new File([bytes], name), true);
+      } else throw new Error('Formato no reconocido. Usa una ROM .nes o .gba.');
+    } catch (e) { showToast('No se pudo abrir el juego: ' + (e?.message || e), 7000); throw e; }
+  }
+  function romRx(p, d) {
+    if (d.t === 'rom-start') {
+      const size = d.size | 0, name = String(d.name || 'juego').replace(/[\\/<>:"|?*\u0000-\u001f]/g, '').slice(0, 80);
+      if (size <= 0 || size > 33554432 || !/\.(nes|gba|bin)$/i.test(name)) { send(p, { t: 'rom-err', m: 'Elige una ROM .nes o .gba (máximo 32 MB).' }); return; }
+      H.rx = { name, size, buf: new Uint8Array(size), got: 0, from: p, shown: -1 };
+      showToast(`Recibiendo ${name}… 0 %`);
+    } else if (d.t === 'rom-chunk') {
+      const r = H.rx; if (!r || r.from !== p) return;
+      try {
+        const bin = atob(d.d), o = d.o | 0;
+        if (o < 0 || o + bin.length > r.size) return;
+        for (let i = 0; i < bin.length; i++) r.buf[o + i] = bin.charCodeAt(i);
+        r.got += bin.length;
+        const pct = Math.floor(100 * r.got / r.size);
+        if (pct !== r.shown) { r.shown = pct; showToast(`Recibiendo ${r.name}… ${pct} %`); if (pct % 5 === 0) send(p, { t: 'rom-prog', pct }); }
+      } catch {}
+    } else if (d.t === 'rom-end') {
+      const r = H.rx; if (!r || r.from !== p) return; H.rx = null;
+      if (r.got < r.size) { showToast('El juego llegó incompleto. Inténtalo de nuevo.', 6000); send(p, { t: 'rom-err', m: 'Llegó incompleto. Inténtalo de nuevo.' }); return; }
+      showToast(`Abriendo ${r.name}…`);
+      launchReceived(r.name, r.buf).then(() => { toast.style.display = 'none'; send(p, { t: 'rom-done' }); }).catch(e => send(p, { t: 'rom-err', m: String(e?.message || e) }));
+    }
+  }
+
   /* ───────────── panel ───────────── */
   const panel = document.createElement('div');
   panel.id = 'ppPanel'; panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true'); panel.setAttribute('aria-label', 'Mandos con el celular');
@@ -205,7 +260,7 @@
         [1, 2, 0].map(s => `<button data-slot="${s}" class="${p.slot === s ? 'on' : ''}">${slotLabel(s)}</button>`).join('') + '</div>';
     }).join('');
     body.innerHTML = `<div class="pp-code" aria-label="Código">${H.code}</div>
-      <p>En el celular abre Arcadia → 📱 Mandos → escribe este código${H.pads.size ? '' : '. Esperando celulares…'}</p>${rows}
+      <p>En el celular abre Arcadia → 📱 Mandos → escribe este código${H.pads.size ? '' : '. Esperando celulares…'}</p><p>¿Sin archivos en esta pantalla? Con el celular conectado pulsa <b>📁 Enviar juego</b> en el mando y elige la ROM del celular: se abre aquí.</p>${rows}
       <div class="pp-actions"><button class="danger" id="ppShut">Cerrar sala de mandos</button></div>`;
     body.querySelectorAll('.pp-row').forEach(row => row.querySelectorAll('button').forEach(b => b.onclick = () => {
       const p = H.pads.get(row.dataset.id); if (!p) return;
@@ -226,7 +281,7 @@
   /* ───────────── MANDO (celular) ───────────── */
   const view = document.createElement('div');
   view.id = 'ppView';
-  view.innerHTML = `<div class="pp-top"><span>Mando · <b id="ppWho">…</b></span><span id="ppStat">Conectando…</span><button class="pp-x" id="ppLeave">Salir</button></div>
+  view.innerHTML = `<div class="pp-top"><span>Mando · <b id="ppWho">…</b></span><span id="ppStat">Conectando…</span><span><button class="pp-x" id="ppSend">📁 Enviar juego</button> <button class="pp-x" id="ppLeave">Salir</button></span></div><input type="file" id="ppFile" accept=".nes,.gba,.bin,application/octet-stream" hidden>
     <div class="pp-rot">Gira el celular en horizontal para jugar mejor</div>
     <button class="pp-b pp-sh pp-l" data-b="l">L</button><button class="pp-b pp-sh pp-r" data-b="r">R</button>
     <div class="pp-dpad" id="ppDpad"><i data-d="up">▲</i><i data-d="down">▼</i><i data-d="left">◀</i><i data-d="right">▶</i></div>
@@ -274,6 +329,34 @@
   view.addEventListener('contextmenu', e => e.preventDefault());
   view.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
 
+
+  /* Enviar una ROM del celular a la pantalla por el mismo canal del mando. */
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  let sending = false;
+  $('#ppSend').onclick = () => { if (!C.conn?.open) { setStat('Sin conexión', 'Conecta primero con la pantalla.'); return; } if (!sending) $('#ppFile').click(); };
+  $('#ppFile').onchange = async e => {
+    const f = e.target.files?.[0]; e.target.value = ''; if (!f || sending) return;
+    if (!/\.(nes|gba|bin)$/i.test(f.name)) { setStat('Formato no válido', 'Elige una ROM .nes o .gba (si es .zip, descomprímela antes).'); return; }
+    if (f.size > 33554432) { setStat('Archivo muy grande', 'El máximo es 32 MB.'); return; }
+    sending = true;
+    try {
+      const bytes = new Uint8Array(await f.arrayBuffer()), conn = C.conn, CH = 12288;
+      conn.send({ t: 'rom-start', name: f.name, size: bytes.length });
+      for (let o = 0, n = 0; o < bytes.length; o += CH, n++) {
+        if (!conn.open) throw new Error('Se perdió la conexión con la pantalla.');
+        while ((conn.dataChannel?.bufferedAmount || 0) > 786432) await sleep(15);
+        const part = bytes.subarray(o, Math.min(o + CH, bytes.length));
+        let bin = ''; for (let i = 0; i < part.length; i += 4096) bin += String.fromCharCode.apply(null, part.subarray(i, i + 4096));
+        conn.send({ t: 'rom-chunk', o, d: btoa(bin) });
+        if (n % 8 === 0) { setStat('Enviando…', `Enviando ${f.name}… ${Math.floor(100 * o / bytes.length)} %`); await sleep(0); }
+      }
+      conn.send({ t: 'rom-end' });
+      setStat('Enviado', 'Listo: la pantalla abre el juego. Ya puedes usar este celular como mando.');
+      setTimeout(() => { if (C.active && C.conn?.open) setStat('Conectado', ''); }, 6000);
+    } catch (err) { setStat('Error', String(err?.message || err)); }
+    sending = false;
+  };
+
   let fsDone = false;
   function enterFullscreenOnce() {
     if (fsDone) return; fsDone = true;
@@ -296,6 +379,8 @@
         if (!d) return;
         if (d.t === 'welcome' || d.t === 'slot') { $('#ppWho').textContent = d.slot ? 'Jugador ' + d.slot : 'Apagado'; if (d.c) applyLayout(d.c); }
         if (d.t === 'layout') applyLayout(d.c);
+        if (d.t === 'rom-err') { sending = false; setStat('Error', d.m || 'La pantalla no pudo abrir el juego.'); }
+        if (d.t === 'rom-done') setStat('Conectado', '');
         if (d.t === 'bye') { setStat('Sala cerrada', 'La pantalla cerró la sala de mandos.'); }
       });
       const lost = () => { clearTimeout(timeout); if (C.active) { setStat('Reconectando…', ''); retry(); } };

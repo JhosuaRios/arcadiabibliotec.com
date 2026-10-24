@@ -1,0 +1,3 @@
+2.2.1 - Enviar juego del celular a la TV
+- Botón 'Enviar juego' en el mando: manda la ROM (.nes/.gba, hasta 32 MB) por el canal del mando y la pantalla la abre.
+- Probado con NES, GBA y una ROM GBA de 16 MB (simulado, sin celular ni TV reales).
