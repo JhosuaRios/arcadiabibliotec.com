@@ -1,0 +1,21 @@
+{
+  "id": "./index.html",
+  "name": "Arcadia Web 1.5.3",
+  "short_name": "Arcadia",
+  "description": "Biblioteca personal con consolas NES y Game Boy Advance",
+  "lang": "es",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#090d13",
+  "theme_color": "#090d13",
+  "icons": [
+    {
+      "src": "./art/arcadia-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

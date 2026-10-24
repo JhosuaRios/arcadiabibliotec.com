@@ -1,0 +1,315 @@
+/* Arcadia · motor GBA
+ * Envoltura de Arcadia sobre el núcleo IodineGBA (MIT, © Grant Galitz) + BIOS libre Cult-of-GBA (MIT).
+ * Sin Workers ni SharedArrayBuffer: corre en el hilo principal, así funciona en cualquier alojamiento.
+ * API: ArcadiaGBA.create(canvas) -> motor { load, start, pause, resume, keyDown, keyUp, setVolume, destroy, ... }
+ * Teclas del núcleo: 0 A, 1 B, 2 Select, 3 Start, 4 Derecha, 5 Izquierda, 6 Arriba, 7 Abajo, 8 R, 9 L.
+ */
+(() => {
+  'use strict';
+  const GBA_W = 240, GBA_H = 160;
+  const DB_NAME = 'arcadia-gba', STORE = 'saves';
+
+  /* ── Guardados de batería (SRAM/Flash/EEPROM) en IndexedDB, con copia en memoria ── */
+  const memorySaves = new Map();
+  let dbPromise = null;
+  function openDb() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise(resolve => {
+      try {
+        const req = indexedDB.open(DB_NAME, 1);
+        req.onupgradeneeded = () => req.result.createObjectStore(STORE);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(null);
+      } catch { resolve(null); }
+    });
+    return dbPromise;
+  }
+  async function saveGet(key) {
+    const db = await openDb();
+    if (!db) return memorySaves.get(key) || null;
+    return new Promise(resolve => {
+      try {
+        const req = db.transaction(STORE).objectStore(STORE).get(key);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => resolve(memorySaves.get(key) || null);
+      } catch { resolve(memorySaves.get(key) || null); }
+    });
+  }
+  async function savePut(key, value) {
+    memorySaves.set(key, value);
+    const db = await openDb();
+    if (!db) return;
+    try { db.transaction(STORE, 'readwrite').objectStore(STORE).put(value, key); } catch {}
+  }
+  async function saveDelete(key) {
+    memorySaves.delete(key);
+    const db = await openDb();
+    if (!db) return;
+    try { db.transaction(STORE, 'readwrite').objectStore(STORE).delete(key); } catch {}
+  }
+
+  async function saveAll() {
+    const db = await openDb(); const out = {};
+    memorySaves.forEach((v, k) => { out[k] = v; });
+    if (!db) return out;
+    return new Promise(resolve => {
+      try {
+        const store = db.transaction(STORE).objectStore(STORE), req = store.openCursor();
+        req.onsuccess = () => { const c = req.result; if (c) { out[c.key] = c.value; c.continue(); } else resolve(out); };
+        req.onerror = () => resolve(out);
+      } catch { resolve(out); }
+    });
+  }
+  const toB64 = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
+  const fromB64 = b => { const s = atob(b), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; };
+
+  /* ── Vídeo: el núcleo entrega RGB 240×160; se pinta en el siguiente fotograma de pantalla ── */
+  class Screen {
+    constructor(canvas) {
+      this.canvas = canvas;
+      canvas.width = GBA_W; canvas.height = GBA_H;
+      this.ctx = canvas.getContext('2d', { alpha: false });
+      this.image = this.ctx.createImageData(GBA_W, GBA_H);
+      const px = this.image.data; for (let i = 3; i < px.length; i += 4) px[i] = 255;
+      this.pending = null; this.frames = 0; this.raf = 0; this.alive = true;
+      this.tick = this.tick.bind(this);
+      this.raf = requestAnimationFrame(this.tick);
+    }
+    copyBuffer(rgb) {                       // el núcleo entrega RGB; se convierte una sola vez a RGBA
+      const dst = this.image.data;
+      for (let i = 0, j = 0, n = GBA_W * GBA_H * 3; i < n; i += 3, j += 4) { dst[j] = rgb[i]; dst[j + 1] = rgb[i + 1]; dst[j + 2] = rgb[i + 2]; }
+      this.dirty = true;
+      if (this.onFrame) this.onFrame();
+    }
+    tick() {
+      if (!this.alive) return;
+      this.raf = requestAnimationFrame(this.tick);
+      if (!this.dirty) return;
+      this.dirty = false;
+      this.ctx.putImageData(this.image, 0, 0);
+      this.frames++;
+    }
+    destroy() { this.alive = false; cancelAnimationFrame(this.raf); }
+  }
+
+  /* ── Audio: cola de buffers programados con WebAudio (sin Workers; la reproducción no depende del hilo principal) ── */
+  class Sound {
+    constructor() {
+      this.ctx = null; this.gain = null; this.volume = 1; this.muted = false;
+      this.channels = 2; this.rate = 44100; this.nextTime = 0; this.registered = false;
+    }
+    ensureContext() {
+      if (this.ctx) return true;
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return false;
+      try {
+        this.ctx = new Ctx({ latencyHint: 'interactive' });
+        this.gain = this.ctx.createGain();
+        this.gain.connect(this.ctx.destination);
+        this.applyVolume();
+      } catch { this.ctx = null; return false; }
+      return true;
+    }
+    applyVolume() { if (this.gain) this.gain.gain.value = this.muted ? 0 : this.volume; }
+    setVolume(v) { this.volume = Math.max(0, Math.min(1, +v || 0)); this.applyVolume(); }
+    setMuted(m) { this.muted = !!m; this.applyVolume(); }
+    resume() { try { this.ctx?.resume?.(); } catch {} }
+    // — interfaz que espera el núcleo —
+    initialize(channels, sampleRate) {
+      this.channels = channels | 0 || 2; this.rate = Math.max(8000, Math.min(96000, Math.round(sampleRate) || 44100));
+      this.ensureContext();
+    }
+    register() { this.registered = true; this.nextTime = 0; this.accPos = 0; }
+    unregister() { this.registered = false; }
+    setBufferSpace(samples) {                // relleno de silencio inicial para estabilizar
+      if (!this.ctx || !this.registered || samples <= 0) return;
+      this.push(new Float32Array(Math.min(samples, this.rate * this.channels)), 0, Math.min(samples, this.rate * this.channels));
+    }
+    push(buffer, start, end) {                // se agrupa en bloques de ~40 ms para no crear cientos de nodos por segundo
+      if (!this.ctx || !this.registered) return;
+      const ch = this.channels;
+      if (!this.acc || this.accRate !== this.rate) { this.acc = new Float32Array(this.rate * ch); this.accPos = 0; this.accRate = this.rate; this.chunk = Math.floor(this.rate * 0.04) * ch; }
+      for (let i = start; i < end; i++) {
+        this.acc[this.accPos++] = buffer[i];
+        if (this.accPos >= this.chunk) this.flush();
+      }
+    }
+    flush() {
+      const ch = this.channels, frames = Math.floor(this.accPos / ch);
+      if (frames <= 0) { this.accPos = 0; return; }
+      const ab = this.ctx.createBuffer(ch, frames, this.rate);
+      for (let c = 0; c < ch; c++) { const out = ab.getChannelData(c); for (let i = 0, k = c; i < frames; i++, k += ch) out[i] = this.acc[k]; }
+      this.accPos = 0;
+      const src = this.ctx.createBufferSource();
+      src.buffer = ab; src.connect(this.gain);
+      const now = this.ctx.currentTime;
+      if (this.nextTime < now + 0.01) this.nextTime = now + 0.05;
+      src.start(this.nextTime);
+      this.nextTime += frames / this.rate;
+    }
+    remainingBuffer() {
+      if (!this.ctx) return 0;
+      const secs = Math.max(0, this.nextTime - this.ctx.currentTime);
+      return Math.floor(secs * this.rate) * this.channels + (this.accPos || 0);
+    }
+    destroy() { try { this.ctx?.close?.(); } catch {} this.ctx = null; this.gain = null; }
+  }
+
+  // Busca las marcas estándar de cartucho (EEPROM_V, SRAM_V, FLASH...) -> 3 EEPROM, 1 SRAM, 2 FLASH, 0 desconocido
+  function detectSaveType(rom) {
+    const has = str => { const n = str.length, c0 = str.charCodeAt(0); outer: for (let i = 0, L = rom.length - n; i < L; i++) { if (rom[i] !== c0) continue; for (let j = 1; j < n; j++) if (rom[i + j] !== str.charCodeAt(j)) continue outer; return true; } return false; };
+    if (has('FLASH1M_V') || has('FLASH512_V') || has('FLASH_V')) return 2;
+    if (has('EEPROM_V')) return 3;
+    if (has('SRAM_V') || has('SRAM_F_V')) return 1;
+    return 0;
+  }
+
+  async function fetchBios(url) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('No se pudo cargar la BIOS libre de GBA.');
+    return new Uint8Array(await res.arrayBuffer());
+  }
+
+  const ArcadiaGBA = {
+    /** Copia de seguridad de TODAS las partidas (JSON con base64). */
+    async exportAllSaves() {
+      const all = await saveAll(), saves = {};
+      for (const k of Object.keys(all)) saves[k] = toB64(Uint8Array.from(all[k]));
+      return { arcadiaGbaSaves: 1, savedAt: new Date().toISOString(), saves };
+    },
+    async importAllSaves(obj) {
+      if (!obj || !obj.saves) throw new Error('Archivo de copia no válido.');
+      let n = 0;
+      for (const k of Object.keys(obj.saves)) { await savePut(k, fromB64(obj.saves[k])); n++; }
+      return n;
+    },
+    async requestPersistence() { try { return !!(await navigator.storage?.persist?.()); } catch { return false; } },
+    available: () => typeof window.GameBoyAdvanceEmulator === 'function',
+    /** @param canvas <canvas> destino
+     *  @param opts { biosUrl, saveKeyPrefix, onSpeed(pct), onStatus(text) } */
+    async create(canvas, opts = {}) {
+      if (!ArcadiaGBA.available()) throw new Error('El núcleo de GBA no está cargado.');
+      const bios = await fetchBios(opts.biosUrl || 'vendor/gba/bios.bin');
+      const core = new window.GameBoyAdvanceEmulator();
+      const screen = new Screen(canvas);
+      const sound = new Sound();
+      let saveKeyPrefix = opts.saveKeyPrefix || '';
+      const legacyPrefix = opts.legacyPrefix || '';
+      let linkCfg = null, linkGate = null, timer = 0, destroyed = false, playing = false, speedPct = 0;
+      const t0 = performance.now();
+
+      core.settings.SKIPBoot = true;              // sin pantalla de arranque
+      core.setIntervalRate(8);
+      core.attachBIOS(bios);
+      core.attachGraphicsFrameHandler(screen);
+      core.attachAudioHandler(sound);
+      core.attachSpeedHandler(pct => {
+        speedPct = pct;
+        opts.onSpeed?.(pct);
+      });
+      core.attachPlayStatusHandler(status => { playing = !!status; opts.onStatus?.(playing ? 'play' : 'pause'); });
+      const lastSaved = new Map();
+      core.attachSaveExportHandler((name, data) => {
+        const key = saveKeyPrefix + name;
+        try {
+          const copy = Uint8Array.from(data);
+          const prev = lastSaved.get(key);
+          if (prev && prev.length === copy.length) { let same = true; for (let i = 0; i < copy.length; i++) if (prev[i] !== copy[i]) { same = false; break; } if (same) return; }
+          lastSaved.set(key, copy);
+          savePut(key, copy);
+          if (!name.startsWith('TYPE_')) opts.onSave?.();
+        } catch {}
+      });
+      let detectedType = 0, lastFound = false;
+      core.attachSaveImportHandler((name, ok, fail) => {
+        saveGet(saveKeyPrefix + name).then(async value => {
+          if (!value && legacyPrefix) { const old = await saveGet(legacyPrefix + name); if (old) { await savePut(saveKeyPrefix + name, old); value = old; } }   // migración de partidas guardadas con el formato anterior
+          lastFound = !!value; return value ? ok(value) : fail();
+        }, () => fail()).then(() => {
+          // Sin partida previa: fija el tipo de memoria según las marcas del cartucho para que SIEMPRE se pueda guardar.
+          if (!name.startsWith('TYPE_') && detectedType) { try { if (!core.IOCore.saves.saveType && !lastFound) core.IOCore.saves.referenceSave(detectedType); } catch {} }
+        });
+      });
+
+      const downAt = new Array(10).fill(0), relTimers = new Array(10).fill(0);
+      const flush = () => { try { if (!destroyed && playing) core.exportSave(); } catch {} };
+      const autosave = setInterval(flush, 4000);
+      const onHide = () => flush();
+      window.addEventListener('pagehide', onHide);
+      document.addEventListener('visibilitychange', () => { if (document.hidden) flush(); });
+      // Reloj compartido: tanto el temporizador como requestAnimationFrame avanzan la emulación SOLO por el tiempo que se debe.
+      // Así, si el navegador retrasa los temporizadores justo al tocar la pantalla (Android), el cuadro de animación toma el relevo.
+      const SLICE = 8; let last = performance.now(), owed = 0, raf = 0;
+      const pump = () => {
+        if (destroyed || !timer) return;
+        const now = performance.now();
+        owed += Math.min(now - last, 100); last = now;
+        let n = 0;
+        while (owed >= SLICE && n < 6) { if (linkGate && !linkGate()) break; core.timerCallback((now - t0) >>> 0); owed -= SLICE; n++; }
+        if (owed > SLICE * 6) owed = 0;
+      };
+      const rafLoop = () => { if (destroyed) return; pump(); raf = requestAnimationFrame(rafLoop); };
+      const loop = pump;
+      const engine = {
+        core, screen, sound,
+        setSaveKey(prefix) { saveKeyPrefix = prefix || ''; },
+        load(rom) { detectedType = detectSaveType(rom instanceof Uint8Array ? rom : new Uint8Array(rom)); core.attachROM(rom instanceof Uint8Array ? rom : new Uint8Array(rom)); },
+        start() {
+          if (destroyed) return;
+          sound.ensureContext(); sound.resume();
+          core.enableAudio();
+          core.play();
+          if (!timer) { last = performance.now(); owed = 0; timer = setInterval(loop, 8); raf = requestAnimationFrame(rafLoop); }
+        },
+        saveNow() { flush(); },
+        /** Bytes de la partida actual (.sav estándar) o null si el juego aún no ha guardado. */
+        exportCurrentSave() { try { flush(); const d = core.IOCore.saves.exportSave(); return d ? Uint8Array.from(d) : null; } catch { return null; } },
+        async importCurrentSave(bytes) {
+          const n = core.getGameName?.(); if (!n) throw new Error('Abre primero el juego.');
+          const type = (core.IOCore.saves.saveType | 0) || detectedType || (bytes.length === 0x8000 ? 1 : bytes.length >= 0x10000 ? 2 : 3);
+          await savePut(saveKeyPrefix + n, Uint8Array.from(bytes)); await savePut(saveKeyPrefix + 'TYPE_' + n, Uint8Array.from([type]));
+          lastSaved.clear(); core.restart();
+        },
+        pause() { core.pause(); if (timer) { clearInterval(timer); timer = 0; } cancelAnimationFrame(raf); },
+        resume() { if (!destroyed) engine.start(); },
+        restart() { core.restart(); },
+        isPlaying: () => playing,
+        speed: () => speedPct,
+        title: () => core.getGameName?.() || '',
+        // Una pulsación dura mínimo ~70 ms para que el juego (que lee los botones una vez por cuadro) nunca se pierda un toque rápido.
+        keyDown(k) { k |= 0; if (relTimers[k]) { clearTimeout(relTimers[k]); relTimers[k] = 0; } if (!downAt[k]) { downAt[k] = performance.now(); core.keyDown(k); } },
+        keyUp(k) {
+          k |= 0; if (!downAt[k]) return;
+          const wait = 70 - (performance.now() - downAt[k]);
+          const rel = () => { relTimers[k] = 0; downAt[k] = 0; core.keyUp(k); };
+          if (wait > 0) { if (!relTimers[k]) relTimers[k] = setTimeout(rel, wait); } else rel();
+        },
+        releaseAll() { for (let k = 0; k < 10; k++) { if (relTimers[k]) clearTimeout(relTimers[k]); relTimers[k] = 0; downAt[k] = 0; core.keyUp(k); } },
+        setVolume(v) { sound.setVolume(v); },
+        setMuted(m) { sound.setMuted(m); },
+        setSmoothing(on) { canvas.style.imageRendering = on ? 'auto' : 'pixelated'; },
+        setSpeed(mult) { core.setSpeed(mult); },
+        frames: () => screen.frames,
+        // — cable link: la red decide cuándo se intercambian paquetes (ver gba-link-net.js) —
+        linkConnect(id, ready) { linkCfg = { id: id | 0, ready: ready !== false }; (window.ArcadiaGBALinkHook = window.ArcadiaGBALinkHook || {}).cfg = linkCfg; const s = core.IOCore?.serial; if (s) s.linkConnect(linkCfg.id, linkCfg.ready); },
+        linkDisconnect() { linkCfg = null; window.ArcadiaGBALinkHook = null; linkGate = null; core.IOCore?.serial?.linkDisconnect(); },
+        linkOut() { const s = core.IOCore?.serial; if (!s || !linkCfg) return null; if (!s.link) s.linkConnect(linkCfg.id, linkCfg.ready); return s.linkOut(); },
+        linkIn(packets) { const s = core.IOCore?.serial; if (!s || !linkCfg) return false; if (!s.link) s.linkConnect(linkCfg.id, linkCfg.ready); return s.linkIn(packets); },
+        linkActive: () => !!linkCfg,
+        setLinkGate(fn) { linkGate = fn || null; },
+        onFrame(fn) { (window.ArcadiaGBALinkHook = window.ArcadiaGBALinkHook || {}).onVBlank = fn || null; },
+        async deleteSave() { /* usa la clave del juego actual */ const n = core.getGameName?.(); if (n) await saveDelete(saveKeyPrefix + n); },
+        destroy() {
+          try { flush(); } catch {}
+          destroyed = true; clearInterval(autosave); window.removeEventListener('pagehide', onHide);
+          if (timer) clearInterval(timer);
+          timer = 0; cancelAnimationFrame(raf);
+          try { core.pause(); core.stop(); } catch {}
+          screen.destroy(); sound.destroy();
+        }
+      };
+      return engine;
+    }
+  };
+  window.ArcadiaGBA = ArcadiaGBA;
+})();
