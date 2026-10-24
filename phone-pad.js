@@ -215,22 +215,27 @@
     if (d.t === 'rom-start') {
       const size = d.size | 0, name = String(d.name || 'juego').replace(/[\\/<>:"|?*\u0000-\u001f]/g, '').slice(0, 80);
       if (size <= 0 || size > 33554432 || !/\.(nes|gba|bin)$/i.test(name)) { send(p, { t: 'rom-err', m: 'Elige una ROM .nes o .gba (máximo 32 MB).' }); return; }
-      H.rx = { name, size, buf: new Uint8Array(size), got: 0, from: p, shown: -1 };
+      const ch = Math.min(Math.max(d.ch | 0, 1024), 16384) || 8192;
+      H.rx = { name, size, ch, have: new Uint8Array(Math.ceil(size / ch)), buf: new Uint8Array(size), got: 0, from: p, shown: -1 };
       showToast(`Recibiendo ${name}… 0 %`);
     } else if (d.t === 'rom-chunk') {
       const r = H.rx; if (!r || r.from !== p) return;
       try {
         const bin = atob(d.d), o = d.o | 0;
         if (o < 0 || o + bin.length > r.size) return;
-        for (let i = 0; i < bin.length; i++) r.buf[o + i] = bin.charCodeAt(i);
-        r.got += bin.length;
+        const idx = Math.floor(o / r.ch);
+        if (o % r.ch === 0 && !r.have[idx]) {
+          for (let i = 0; i < bin.length; i++) r.buf[o + i] = bin.charCodeAt(i);
+          r.have[idx] = 1; r.got += bin.length;
+        }
         const pct = Math.floor(100 * r.got / r.size);
         if (pct !== r.shown) { r.shown = pct; showToast(`Recibiendo ${r.name}… ${pct} %`); if (pct % 5 === 0) send(p, { t: 'rom-prog', pct }); }
       } catch {}
     } else if (d.t === 'rom-end') {
-      const r = H.rx; if (!r || r.from !== p) return; H.rx = null;
-      if (r.got < r.size) { showToast('El juego llegó incompleto. Inténtalo de nuevo.', 6000); send(p, { t: 'rom-err', m: 'Llegó incompleto. Inténtalo de nuevo.' }); return; }
-      showToast(`Abriendo ${r.name}…`);
+      const r = H.rx; if (!r || r.from !== p) return;
+      const miss = []; for (let i = 0; i < r.have.length && miss.length < 600; i++) if (!r.have[i]) miss.push(i);
+      if (miss.length) { H.rx = r; r.tries = (r.tries || 0) + 1; if (r.tries > 6) { H.rx = null; showToast('No se pudo completar la transferencia.', 6000); send(p, { t: 'rom-err', m: 'No se pudo completar la transferencia. Acerca el celular al router e inténtalo de nuevo.' }); return; } showToast(`Reenviando partes perdidas (${miss.length})…`); send(p, { t: 'rom-miss', list: miss }); return; }
+      H.rx = null; showToast(`Abriendo ${r.name}…`);
       launchReceived(r.name, r.buf).then(() => { toast.style.display = 'none'; send(p, { t: 'rom-done' }); }).catch(e => send(p, { t: 'rom-err', m: String(e?.message || e) }));
     }
   }
@@ -332,7 +337,18 @@
 
   /* Enviar una ROM del celular a la pantalla por el mismo canal del mando. */
   const sleep = ms => new Promise(r => setTimeout(r, ms));
-  let sending = false;
+  let sending = false, tx = null;
+  async function sendChunk(n) {
+    const t = tx; if (!t || !t.conn.open) throw new Error('Se perdió la conexión con la pantalla.');
+    while ((t.conn.dataChannel?.bufferedAmount || 0) > 524288) await sleep(15);
+    const o = n * t.CH, part = t.bytes.subarray(o, Math.min(o + t.CH, t.bytes.length));
+    let bin = ''; for (let i = 0; i < part.length; i += 4096) bin += String.fromCharCode.apply(null, part.subarray(i, i + 4096));
+    t.conn.send({ t: 'rom-chunk', o, d: btoa(bin) });
+  }
+  async function resendMissing(list) {
+    try { for (let i = 0; i < list.length; i++) { await sendChunk(list[i]); if (i % 8 === 0) { setStat('Enviando…', `Reenviando partes perdidas… ${list.length - i}`); await sleep(0); } } tx?.conn.send({ t: 'rom-end' }); }
+    catch (err) { setStat('Error', String(err?.message || err)); sending = false; tx = null; }
+  }
   $('#ppSend').onclick = () => { if (!C.conn?.open) { setStat('Sin conexión', 'Conecta primero con la pantalla.'); return; } if (!sending) $('#ppFile').click(); };
   $('#ppFile').onchange = async e => {
     const f = e.target.files?.[0]; e.target.value = ''; if (!f || sending) return;
@@ -340,21 +356,20 @@
     if (f.size > 33554432) { setStat('Archivo muy grande', 'El máximo es 32 MB.'); return; }
     sending = true;
     try {
-      const bytes = new Uint8Array(await f.arrayBuffer()), conn = C.conn, CH = 12288;
-      conn.send({ t: 'rom-start', name: f.name, size: bytes.length });
-      for (let o = 0, n = 0; o < bytes.length; o += CH, n++) {
-        if (!conn.open) throw new Error('Se perdió la conexión con la pantalla.');
-        while ((conn.dataChannel?.bufferedAmount || 0) > 786432) await sleep(15);
-        const part = bytes.subarray(o, Math.min(o + CH, bytes.length));
-        let bin = ''; for (let i = 0; i < part.length; i += 4096) bin += String.fromCharCode.apply(null, part.subarray(i, i + 4096));
-        conn.send({ t: 'rom-chunk', o, d: btoa(bin) });
-        if (n % 8 === 0) { setStat('Enviando…', `Enviando ${f.name}… ${Math.floor(100 * o / bytes.length)} %`); await sleep(0); }
+      const bytes = new Uint8Array(await f.arrayBuffer()), conn = C.conn, CH = 8192;
+      tx = { bytes, conn, CH, name: f.name };
+      conn.send({ t: 'rom-start', name: f.name, size: bytes.length, ch: CH });
+      const total = Math.ceil(bytes.length / CH);
+      for (let n = 0; n < total; n++) {
+        await sendChunk(n);
+        if (n % 8 === 0) { setStat('Enviando…', `Enviando ${f.name}… ${Math.floor(100 * n / total)} %`); await sleep(0); }
       }
       conn.send({ t: 'rom-end' });
-      setStat('Enviado', 'Listo: la pantalla abre el juego. Ya puedes usar este celular como mando.');
-      setTimeout(() => { if (C.active && C.conn?.open) setStat('Conectado', ''); }, 6000);
+      setStat('Enviando…', 'Verificando que llegó completo…');
+      // si la pantalla no responde, vuelve a preguntar
+      for (let k = 0; k < 8 && tx && tx.bytes === bytes; k++) { await sleep(5000); if (tx && tx.bytes === bytes && conn.open) conn.send({ t: 'rom-end' }); }
     } catch (err) { setStat('Error', String(err?.message || err)); }
-    sending = false;
+    sending = tx ? sending : false;
   };
 
   let fsDone = false;
@@ -379,8 +394,9 @@
         if (!d) return;
         if (d.t === 'welcome' || d.t === 'slot') { $('#ppWho').textContent = d.slot ? 'Jugador ' + d.slot : 'Apagado'; if (d.c) applyLayout(d.c); }
         if (d.t === 'layout') applyLayout(d.c);
-        if (d.t === 'rom-err') { sending = false; setStat('Error', d.m || 'La pantalla no pudo abrir el juego.'); }
-        if (d.t === 'rom-done') setStat('Conectado', '');
+        if (d.t === 'rom-miss' && tx) resendMissing(d.list || []);
+        if (d.t === 'rom-err') { sending = false; tx = null; setStat('Error', d.m || 'La pantalla no pudo abrir el juego.'); }
+        if (d.t === 'rom-done') { tx = null; sending = false; setStat('Conectado', 'Listo: la pantalla abrió el juego.'); setTimeout(() => { if (C.active && C.conn?.open) setStat('Conectado', ''); }, 5000); }
         if (d.t === 'bye') { setStat('Sala cerrada', 'La pantalla cerró la sala de mandos.'); }
       });
       const lost = () => { clearTimeout(timeout); if (C.active) { setStat('Reconectando…', ''); retry(); } };

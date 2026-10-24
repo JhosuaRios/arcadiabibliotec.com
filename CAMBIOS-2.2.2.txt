@@ -1,0 +1,3 @@
+2.2.2 - Envio de juegos tolerante a perdidas
+- Trozos de 8 KB, la TV pide los que faltan (hasta 6 rondas) y el celular los reenvia.
+- Probado en simulacion con 15% de perdida en una ROM de 16 MB.
