@@ -1,0 +1,6 @@
+2.2.0 - Celular como mando
+- phone-pad.js: sala de mandos por código (PeerJS), asignación J1/J2/Apagado desde la pantalla, hasta 4 celulares.
+- Mando táctil: cruceta de 8 direcciones, A, B, Start, Select (y L/R en GBA), multitáctil, pantalla siempre encendida.
+- NES: J2 usa el segundo control del emulador; dentro de una sala online el celular es tu propio mando.
+- GBA: todos los celulares controlan la consola local.
+- También se abre con ?mando=CODIGO.

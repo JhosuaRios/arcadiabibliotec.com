@@ -48,21 +48,6 @@
     try { db.transaction(STORE, 'readwrite').objectStore(STORE).delete(key); } catch {}
   }
 
-  async function saveAll() {
-    const db = await openDb(); const out = {};
-    memorySaves.forEach((v, k) => { out[k] = v; });
-    if (!db) return out;
-    return new Promise(resolve => {
-      try {
-        const store = db.transaction(STORE).objectStore(STORE), req = store.openCursor();
-        req.onsuccess = () => { const c = req.result; if (c) { out[c.key] = c.value; c.continue(); } else resolve(out); };
-        req.onerror = () => resolve(out);
-      } catch { resolve(out); }
-    });
-  }
-  const toB64 = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
-  const fromB64 = b => { const s = atob(b), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; };
-
   /* ── Vídeo: el núcleo entrega RGB 240×160; se pinta en el siguiente fotograma de pantalla ── */
   class Screen {
     constructor(canvas) {
@@ -75,9 +60,9 @@
       this.tick = this.tick.bind(this);
       this.raf = requestAnimationFrame(this.tick);
     }
-    copyBuffer(rgb) {                       // el núcleo entrega RGB; se convierte una sola vez a RGBA
-      const dst = this.image.data;
-      for (let i = 0, j = 0, n = GBA_W * GBA_H * 3; i < n; i += 3, j += 4) { dst[j] = rgb[i]; dst[j + 1] = rgb[i + 1]; dst[j + 2] = rgb[i + 2]; }
+    copyBuffer(rgb) {                       // llamado por el núcleo en cada cuadro
+      if (!this.pending) this.pending = new Uint8Array(GBA_W * GBA_H * 3);
+      this.pending.set(rgb);
       this.dirty = true;
     }
     tick() {
@@ -85,6 +70,8 @@
       this.raf = requestAnimationFrame(this.tick);
       if (!this.dirty) return;
       this.dirty = false;
+      const src = this.pending, dst = this.image.data;
+      for (let i = 0, j = 0, n = GBA_W * GBA_H * 3; i < n; i += 3, j += 4) { dst[j] = src[i]; dst[j + 1] = src[i + 1]; dst[j + 2] = src[i + 2]; }
       this.ctx.putImageData(this.image, 0, 0);
       this.frames++;
     }
@@ -118,49 +105,34 @@
       this.channels = channels | 0 || 2; this.rate = Math.max(8000, Math.min(96000, Math.round(sampleRate) || 44100));
       this.ensureContext();
     }
-    register() { this.registered = true; this.nextTime = 0; this.accPos = 0; }
+    register() { this.registered = true; this.nextTime = 0; }
     unregister() { this.registered = false; }
     setBufferSpace(samples) {                // relleno de silencio inicial para estabilizar
       if (!this.ctx || !this.registered || samples <= 0) return;
       this.push(new Float32Array(Math.min(samples, this.rate * this.channels)), 0, Math.min(samples, this.rate * this.channels));
     }
-    push(buffer, start, end) {                // se agrupa en bloques de ~40 ms para no crear cientos de nodos por segundo
+    push(buffer, start, end) {
       if (!this.ctx || !this.registered) return;
-      const ch = this.channels;
-      if (!this.acc || this.accRate !== this.rate) { this.acc = new Float32Array(this.rate * ch); this.accPos = 0; this.accRate = this.rate; this.chunk = Math.floor(this.rate * 0.04) * ch; }
-      for (let i = start; i < end; i++) {
-        this.acc[this.accPos++] = buffer[i];
-        if (this.accPos >= this.chunk) this.flush();
+      const frames = Math.floor((end - start) / this.channels);
+      if (frames <= 0) return;
+      const ab = this.ctx.createBuffer(this.channels, frames, this.rate);
+      for (let c = 0; c < this.channels; c++) {
+        const out = ab.getChannelData(c);
+        for (let i = 0, k = start + c; i < frames; i++, k += this.channels) out[i] = buffer[k];
       }
-    }
-    flush() {
-      const ch = this.channels, frames = Math.floor(this.accPos / ch);
-      if (frames <= 0) { this.accPos = 0; return; }
-      const ab = this.ctx.createBuffer(ch, frames, this.rate);
-      for (let c = 0; c < ch; c++) { const out = ab.getChannelData(c); for (let i = 0, k = c; i < frames; i++, k += ch) out[i] = this.acc[k]; }
-      this.accPos = 0;
       const src = this.ctx.createBufferSource();
       src.buffer = ab; src.connect(this.gain);
       const now = this.ctx.currentTime;
-      if (this.nextTime < now + 0.01) this.nextTime = now + 0.05;
+      if (this.nextTime < now + 0.01) this.nextTime = now + 0.03;     // se vació: reengancha con un pequeño margen
       src.start(this.nextTime);
       this.nextTime += frames / this.rate;
     }
-    remainingBuffer() {
+    remainingBuffer() {                      // muestras entrelazadas aún por sonar (a la tasa del núcleo)
       if (!this.ctx) return 0;
       const secs = Math.max(0, this.nextTime - this.ctx.currentTime);
-      return Math.floor(secs * this.rate) * this.channels + (this.accPos || 0);
+      return Math.floor(secs * this.rate) * this.channels;
     }
     destroy() { try { this.ctx?.close?.(); } catch {} this.ctx = null; this.gain = null; }
-  }
-
-  // Busca las marcas estándar de cartucho (EEPROM_V, SRAM_V, FLASH...) -> 3 EEPROM, 1 SRAM, 2 FLASH, 0 desconocido
-  function detectSaveType(rom) {
-    const has = str => { const n = str.length, c0 = str.charCodeAt(0); outer: for (let i = 0, L = rom.length - n; i < L; i++) { if (rom[i] !== c0) continue; for (let j = 1; j < n; j++) if (rom[i + j] !== str.charCodeAt(j)) continue outer; return true; } return false; };
-    if (has('FLASH1M_V') || has('FLASH512_V') || has('FLASH_V')) return 2;
-    if (has('EEPROM_V')) return 3;
-    if (has('SRAM_V') || has('SRAM_F_V')) return 1;
-    return 0;
   }
 
   async function fetchBios(url) {
@@ -170,19 +142,6 @@
   }
 
   const ArcadiaGBA = {
-    /** Copia de seguridad de TODAS las partidas (JSON con base64). */
-    async exportAllSaves() {
-      const all = await saveAll(), saves = {};
-      for (const k of Object.keys(all)) saves[k] = toB64(Uint8Array.from(all[k]));
-      return { arcadiaGbaSaves: 1, savedAt: new Date().toISOString(), saves };
-    },
-    async importAllSaves(obj) {
-      if (!obj || !obj.saves) throw new Error('Archivo de copia no válido.');
-      let n = 0;
-      for (const k of Object.keys(obj.saves)) { await savePut(k, fromB64(obj.saves[k])); n++; }
-      return n;
-    },
-    async requestPersistence() { try { return !!(await navigator.storage?.persist?.()); } catch { return false; } },
     available: () => typeof window.GameBoyAdvanceEmulator === 'function',
     /** @param canvas <canvas> destino
      *  @param opts { biosUrl, saveKeyPrefix, onSpeed(pct), onStatus(text) } */
@@ -193,8 +152,7 @@
       const screen = new Screen(canvas);
       const sound = new Sound();
       let saveKeyPrefix = opts.saveKeyPrefix || '';
-      const legacyPrefix = opts.legacyPrefix || '';
-      let timer = 0, destroyed = false, playing = false, speedPct = 0;
+      let linkCfg = null, timer = 0, destroyed = false, playing = false, speedPct = 0;
       const t0 = performance.now();
 
       core.settings.SKIPBoot = true;              // sin pantalla de arranque
@@ -202,99 +160,52 @@
       core.attachBIOS(bios);
       core.attachGraphicsFrameHandler(screen);
       core.attachAudioHandler(sound);
-      core.attachSpeedHandler(pct => {
-        speedPct = pct;
-        opts.onSpeed?.(pct);
-      });
+      core.attachSpeedHandler(pct => { speedPct = pct; opts.onSpeed?.(pct); });
       core.attachPlayStatusHandler(status => { playing = !!status; opts.onStatus?.(playing ? 'play' : 'pause'); });
-      const lastSaved = new Map();
       core.attachSaveExportHandler((name, data) => {
         const key = saveKeyPrefix + name;
-        try {
-          const copy = Uint8Array.from(data);
-          const prev = lastSaved.get(key);
-          if (prev && prev.length === copy.length) { let same = true; for (let i = 0; i < copy.length; i++) if (prev[i] !== copy[i]) { same = false; break; } if (same) return; }
-          lastSaved.set(key, copy);
-          savePut(key, copy);
-          if (!name.startsWith('TYPE_')) opts.onSave?.();
-        } catch {}
+        try { savePut(key, Array.from(data)); } catch {}
       });
-      let detectedType = 0, lastFound = false;
       core.attachSaveImportHandler((name, ok, fail) => {
-        saveGet(saveKeyPrefix + name).then(async value => {
-          if (!value && legacyPrefix) { const old = await saveGet(legacyPrefix + name); if (old) { await savePut(saveKeyPrefix + name, old); value = old; } }   // migración de partidas guardadas con el formato anterior
-          lastFound = !!value; return value ? ok(value) : fail();
-        }, () => fail()).then(() => {
-          // Sin partida previa: fija el tipo de memoria según las marcas del cartucho para que SIEMPRE se pueda guardar.
-          if (!name.startsWith('TYPE_') && detectedType) { try { if (!core.IOCore.saves.saveType && !lastFound) core.IOCore.saves.referenceSave(detectedType); } catch {} }
-        });
+        saveGet(saveKeyPrefix + name).then(value => (value ? ok(value) : fail()), () => fail());
       });
 
-      const downAt = new Array(10).fill(0), relTimers = new Array(10).fill(0);
-      const flush = () => { try { if (!destroyed && playing) core.exportSave(); } catch {} };
-      const autosave = setInterval(flush, 4000);
-      const onHide = () => flush();
-      window.addEventListener('pagehide', onHide);
-      document.addEventListener('visibilitychange', () => { if (document.hidden) flush(); });
-      // Reloj compartido: tanto el temporizador como requestAnimationFrame avanzan la emulación SOLO por el tiempo que se debe.
-      // Así, si el navegador retrasa los temporizadores justo al tocar la pantalla (Android), el cuadro de animación toma el relevo.
-      const SLICE = 8; let last = performance.now(), owed = 0, raf = 0;
-      const pump = () => {
-        if (destroyed || !timer) return;
-        const now = performance.now();
-        owed += Math.min(now - last, 100); last = now;
-        let n = 0;
-        while (owed >= SLICE && n < 6) { core.timerCallback((now - t0) >>> 0); owed -= SLICE; n++; }
-        if (owed > SLICE * 6) owed = 0;
-      };
-      const rafLoop = () => { if (destroyed) return; pump(); raf = requestAnimationFrame(rafLoop); };
-      const loop = pump;
+      const loop = () => { if (!destroyed) core.timerCallback((performance.now() - t0) >>> 0); };
       const engine = {
         core, screen, sound,
         setSaveKey(prefix) { saveKeyPrefix = prefix || ''; },
-        load(rom) { detectedType = detectSaveType(rom instanceof Uint8Array ? rom : new Uint8Array(rom)); core.attachROM(rom instanceof Uint8Array ? rom : new Uint8Array(rom)); },
+        load(rom) { core.attachROM(rom instanceof Uint8Array ? rom : new Uint8Array(rom)); },
         start() {
           if (destroyed) return;
           sound.ensureContext(); sound.resume();
-          core.enableAudio();
           core.play();
-          if (!timer) { last = performance.now(); owed = 0; timer = setInterval(loop, 8); raf = requestAnimationFrame(rafLoop); }
+          if (!timer) timer = setInterval(loop, 8);
         },
-        saveNow() { flush(); },
-        /** Bytes de la partida actual (.sav estándar) o null si el juego aún no ha guardado. */
-        exportCurrentSave() { try { flush(); const d = core.IOCore.saves.exportSave(); return d ? Uint8Array.from(d) : null; } catch { return null; } },
-        async importCurrentSave(bytes) {
-          const n = core.getGameName?.(); if (!n) throw new Error('Abre primero el juego.');
-          const type = (core.IOCore.saves.saveType | 0) || detectedType || (bytes.length === 0x8000 ? 1 : bytes.length >= 0x10000 ? 2 : 3);
-          await savePut(saveKeyPrefix + n, Uint8Array.from(bytes)); await savePut(saveKeyPrefix + 'TYPE_' + n, Uint8Array.from([type]));
-          lastSaved.clear(); core.restart();
-        },
-        pause() { core.pause(); if (timer) { clearInterval(timer); timer = 0; } cancelAnimationFrame(raf); },
+        pause() { core.pause(); if (timer) { clearInterval(timer); timer = 0; } },
         resume() { if (!destroyed) engine.start(); },
         restart() { core.restart(); },
         isPlaying: () => playing,
         speed: () => speedPct,
         title: () => core.getGameName?.() || '',
-        // Una pulsación dura mínimo ~70 ms para que el juego (que lee los botones una vez por cuadro) nunca se pierda un toque rápido.
-        keyDown(k) { k |= 0; if (relTimers[k]) { clearTimeout(relTimers[k]); relTimers[k] = 0; } if (!downAt[k]) { downAt[k] = performance.now(); core.keyDown(k); } },
-        keyUp(k) {
-          k |= 0; if (!downAt[k]) return;
-          const wait = 70 - (performance.now() - downAt[k]);
-          const rel = () => { relTimers[k] = 0; downAt[k] = 0; core.keyUp(k); };
-          if (wait > 0) { if (!relTimers[k]) relTimers[k] = setTimeout(rel, wait); } else rel();
-        },
-        releaseAll() { for (let k = 0; k < 10; k++) { if (relTimers[k]) clearTimeout(relTimers[k]); relTimers[k] = 0; downAt[k] = 0; core.keyUp(k); } },
+        keyDown(k) { core.keyDown(k | 0); },
+        keyUp(k) { core.keyUp(k | 0); },
+        releaseAll() { for (let k = 0; k < 10; k++) core.keyUp(k); },
         setVolume(v) { sound.setVolume(v); },
         setMuted(m) { sound.setMuted(m); },
         setSmoothing(on) { canvas.style.imageRendering = on ? 'auto' : 'pixelated'; },
         setSpeed(mult) { core.setSpeed(mult); },
         frames: () => screen.frames,
+        // — cable link (etapa 1): el intercambio de paquetes lo decide la capa de red —
+        linkConnect(id, ready) { linkCfg = { id: id | 0, ready: ready !== false }; const s = core.IOCore?.serial; if (s) s.linkConnect(linkCfg.id, linkCfg.ready); },
+        linkDisconnect() { linkCfg = null; core.IOCore?.serial?.linkDisconnect(); },
+        linkOut() { const s = core.IOCore?.serial; if (!s || !linkCfg) return null; if (!s.link) s.linkConnect(linkCfg.id, linkCfg.ready); return s.linkOut(); },
+        linkIn(packets) { const s = core.IOCore?.serial; if (!s || !linkCfg) return false; if (!s.link) s.linkConnect(linkCfg.id, linkCfg.ready); return s.linkIn(packets); },
+        linkActive: () => !!linkCfg,
         async deleteSave() { /* usa la clave del juego actual */ const n = core.getGameName?.(); if (n) await saveDelete(saveKeyPrefix + n); },
         destroy() {
-          try { flush(); } catch {}
-          destroyed = true; clearInterval(autosave); window.removeEventListener('pagehide', onHide);
+          destroyed = true;
           if (timer) clearInterval(timer);
-          timer = 0; cancelAnimationFrame(raf);
+          timer = 0;
           try { core.pause(); core.stop(); } catch {}
           screen.destroy(); sound.destroy();
         }

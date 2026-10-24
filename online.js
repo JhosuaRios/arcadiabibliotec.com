@@ -1367,6 +1367,7 @@
   if (guestHelp) guestHelp.textContent = 'Paso 1: abre un juego NES en este dispositivo. Paso 2: abre Online, escribe el código del anfitrión y pulsa Unirse. Para sincronización por cuadros, abre exactamente el mismo archivo ROM que el anfitrión. Con ROM diferentes solo se intercambian controles.';
 
   window.arcadiaOnline = {
+    peerOptions: PEER_OPTIONS,
     isGuest: () => G.active,
     isLockstep: () => LS.active,
     isHosting: () => !!H.active,
