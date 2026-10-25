@@ -294,7 +294,8 @@
         linkConnect(id, ready) { linkCfg = { id: id | 0, ready: ready !== false }; (window.ArcadiaGBALinkHook = window.ArcadiaGBALinkHook || {}).cfg = linkCfg; const s = core.IOCore?.serial; if (s) s.linkConnect(linkCfg.id, linkCfg.ready); },
         linkDisconnect() { linkCfg = null; window.ArcadiaGBALinkHook = null; linkGate = null; core.IOCore?.serial?.linkDisconnect(); },
         linkOut() { const s = core.IOCore?.serial; if (!s || !linkCfg) return null; if (!s.link) s.linkConnect(linkCfg.id, linkCfg.ready); return s.linkOut(); },
-        linkIn(packets) { const s = core.IOCore?.serial; if (!s || !linkCfg) return false; if (!s.link) s.linkConnect(linkCfg.id, linkCfg.ready); return s.linkIn(packets); },
+        linkTakeStart() { const s = core.IOCore?.serial; if (!s || !linkCfg || !s.link) return null; return s.linkTakeStart(); },
+        linkApply(d) { const s = core.IOCore?.serial; if (!s || !linkCfg) return false; if (!s.link) s.linkConnect(linkCfg.id, linkCfg.ready); return s.linkApply(d); },
         linkActive: () => !!linkCfg,
         setLinkGate(fn) { linkGate = fn || null; },
         onFrame(fn) { (window.ArcadiaGBALinkHook = window.ArcadiaGBALinkHook || {}).onVBlank = fn || null; },
@@ -312,5 +313,5 @@
     }
   };
   window.ArcadiaGBA = ArcadiaGBA;
-  ArcadiaGBA.version = '2.3.2';
+  ArcadiaGBA.version = '2.3.3';
 })();

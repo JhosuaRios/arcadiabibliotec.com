@@ -1,0 +1,5 @@
+Arcadia Web 2.3.3
+
+- GBA · cable link rehecho: la transferencia ahora termina de inmediato en la consola 1, como en el cable real (antes tardaba varios cuadros y Mario Kart la daba por fallida: “Insert the Game Boy Advance Game Link Cable”). Además ya no se frena el juego esperando al otro jugador.
+- NES: el mando se detecta solo. Si no había un mando elegido en Ajustes, usa el primero conectado.
+- Para jugar link: los dos abren su juego, conectan con 🔗 Link (el que crea la sala es la consola 1) y recién entonces entran al menú multijugador del juego.

@@ -1,4 +1,4 @@
-(window.ARCADIA_FILES=window.ARCADIA_FILES||{})['gba-link-net.js']='2.3.2';
+(window.ARCADIA_FILES=window.ARCADIA_FILES||{})['gba-link-net.js']='2.3.3';
 /* Arcadia · Cable link GBA por internet (v2.3.0)
  * Dos consolas GBA (una en cada dispositivo) se unen con un código, como con un cable link.
  * Funciona con cualquier ROM que use el cable en modo multijugador.
@@ -40,7 +40,7 @@
   document.head.appendChild(style);
 
   /* ───────────── estado ───────────── */
-  const N = { peer: null, conn: null, role: '', code: '', id: 0, D: 4, F: 0, applied: 0, L: {}, R: {}, active: false, eng: null,
+  const N = { peer: null, conn: null, role: '', code: '', id: 0, F: 0, Q: [], lastSlave: 0xFFFF, active: false, eng: null,
               rtt: 0, lastRx: 0, stallSince: 0, remote: null, status: 'Sin conexión', warn: '', pingT: 0, sent: 0, got: 0, transfers: 0 };
 
   const localInfo = () => { const e = eng(); return { title: (e?.title?.() || '').slice(0, 40), file: (typeof gbaCurrentRom !== 'undefined' ? gbaCurrentRom : '') }; };
@@ -52,12 +52,11 @@
     N.eng = e;
     e.linkConnect(N.id, true);
     e.onFrame(onFrame);
-    e.setLinkGate(gate);
     return true;
   }
   function startLink() {
     if (N.active) return;
-    N.F = 0; N.applied = 0; N.L = {}; N.R = {}; N.stallSince = 0; N.sent = 0; N.got = 0; N.transfers = 0; N.eng = null;
+    N.F = 0; N.Q = []; N.lastSlave = 0xFFFF; N.stallSince = 0; N.sent = 0; N.got = 0; N.transfers = 0; N.eng = null;
     N.active = true;
     try { if (typeof gbaSetTurbo === 'function') gbaSetTurbo(false); } catch {}
     hookEngine();
@@ -70,7 +69,7 @@
     N.active = false;
     try { N.eng?.linkDisconnect(); } catch {}
     try { eng()?.linkDisconnect(); } catch {}
-    N.eng = null; N.L = {}; N.R = {};
+    N.eng = null; N.Q = [];
     try { N.conn?.close(); } catch {} try { N.peer?.destroy(); } catch {}
     N.conn = null; N.peer = null; N.role = ''; N.code = ''; N.remote = null;
     N.status = reason || 'Sin conexión';
@@ -78,50 +77,40 @@
     render();
   }
 
-  /* ───────────── sincronización por cuadros ───────────── */
+  /* ───────────── intercambio ─────────────
+     Como en el cable real, el maestro (consola 1) termina cada transferencia de inmediato con el último dato conocido
+     del esclavo y envía el resultado; el esclavo lo aplica al recibirlo (uno por cuadro). Así el juego ve el cable
+     "rápido" y la latencia solo retrasa los datos, sin dejar la transferencia colgada. */
   function onFrame() {
     if (!N.active) return;
     N.F++;
     const e = eng(); let p = null;
     try { p = e?.linkOut(); } catch {}
-    p = p || BLANK;
-    N.L[N.F] = p;
-    send({ t: 'f', n: N.F, p });
+    send({ t: 'f', n: N.F, p: p || BLANK });
     N.sent++;
     if (N.F % 90 === 0) send({ t: 'ping', ts: performance.now() });
-  }
-  function applyExchange(n) {
-    const a = N.id === 0 ? [N.L[n], N.R[n]] : [N.R[n], N.L[n]];
-    let ok = false;
-    try { ok = eng()?.linkIn(a); } catch {}
-    if (ok) N.transfers++;
-    delete N.L[n]; delete N.R[n];
-  }
-  function gate() {
-    if (!N.active) return true;
-    if (eng() !== N.eng) hookEngine();
-    let n = N.applied + 1;
-    while (n <= N.F - N.D) {
-      if (N.L[n] && N.R[n]) { applyExchange(n); N.applied = n; n++; }
-      else { if (!N.stallSince) N.stallSince = performance.now(); return false; }
+    if (N.id === 0) {
+      let s0 = null; try { s0 = e?.linkTakeStart(); } catch {}
+      if (s0 != null) {
+        const d = [s0, N.lastSlave, 0xFFFF, 0xFFFF];
+        let ok = false; try { ok = e.linkApply(d); } catch {}
+        if (ok) { N.transfers++; send({ t: 'x', d }); }
+      }
+    } else if (N.Q.length) {
+      const d = N.Q.shift();
+      let ok = false; try { ok = e?.linkApply(d); } catch {}
+      if (ok) N.transfers++;
     }
-    N.stallSince = 0;
-    return true;
   }
   function onMessage(d) {
     if (!d || typeof d !== 'object') return;
     N.lastRx = performance.now();
-    if (d.t === 'f') { if (d.n > N.applied) { N.R[d.n] = d.p || BLANK; N.got++; } }
+    if (d.t === 'f') { N.got++; N.lastSlave = (d.p && d.p.send != null) ? (d.p.send & 0xFFFF) : 0xFFFF; }
+    else if (d.t === 'x') { if (Array.isArray(d.d) && N.id !== 0) { N.Q.push(d.d); if (N.Q.length > 8) N.Q.splice(0, N.Q.length - 8); } }
     else if (d.t === 'ping') send({ t: 'pong', ts: d.ts });
-    else if (d.t === 'pong') { N.rtt = Math.round(performance.now() - d.ts); autoDelay(); }
-    else if (d.t === 'cfg') { N.D = Math.min(10, Math.max(2, d.D | 0)); }
+    else if (d.t === 'pong') N.rtt = Math.round(performance.now() - d.ts);
     else if (d.t === 'hello') { N.remote = d.info || {}; if (N.role === 'host') send({ t: 'hello', info: localInfo() }); startLink(); }
     else if (d.t === 'bye') stopLink('El otro jugador se desconectó.');
-  }
-  function autoDelay() {                                     // solo manda el anfitrión; el invitado sigue su valor
-    if (N.role !== 'host' || !N.active) return;
-    const want = Math.min(8, Math.max(3, Math.ceil(N.rtt / 33.3) + 2));
-    if (want !== N.D && (want > N.D || N.D - want >= 2)) { N.D = want; send({ t: 'cfg', D: N.D }); }
   }
 
   /* ───────────── conexión ───────────── */
@@ -188,7 +177,7 @@
     const body = $('#glBody'); if (!body) return;
     const e = eng();
     if (N.active) {
-      body.innerHTML = `<div class="gl-sec"><h3>Conectado</h3><p class="gl-ok">${N.status} · latencia ${N.rtt || '…'} ms · retraso ${N.D} cuadros</p>${N.warn ? `<p class="gl-warn">${N.warn}</p>` : ''}
+      body.innerHTML = `<div class="gl-sec"><h3>Conectado</h3><p class="gl-ok">${N.status} · latencia ${N.rtt || '…'} ms</p>${N.warn ? `<p class="gl-warn">${N.warn}</p>` : ''}
         <p>Ahora, en el juego, usen la opción del cable (en Pokémon: hablar con la recepcionista del Centro Pokémon → Club de cable). Intercambios hechos: <b>${N.transfers}</b>.</p>
         <div class="gl-actions"><button class="danger" id="glStop">Desconectar</button></div></div>`;
       $('#glStop').onclick = () => { send({ t: 'bye' }); stopLink('Desconectado.'); };
