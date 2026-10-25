@@ -1,3 +1,4 @@
+(window.ARCADIA_FILES=window.ARCADIA_FILES||{})['tv-mode.js']='2.3.2';
 /* Arcadia · Modo TV (v2.3.0)
  * - Se activa solo cuando se envía un juego desde el celular (o con ?tv=1 / el botón del panel 📱).
  * - Pantalla completa sin barras, sin efectos visuales costosos.

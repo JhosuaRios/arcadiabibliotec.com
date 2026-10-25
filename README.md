@@ -1,2 +1,0 @@
-# arcadiabibliotec.com
-Arcadia

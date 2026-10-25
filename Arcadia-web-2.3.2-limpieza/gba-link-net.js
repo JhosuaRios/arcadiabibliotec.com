@@ -1,3 +1,4 @@
+(window.ARCADIA_FILES=window.ARCADIA_FILES||{})['gba-link-net.js']='2.3.2';
 /* Arcadia · Cable link GBA por internet (v2.3.0)
  * Dos consolas GBA (una en cada dispositivo) se unen con un código, como con un cable link.
  * Funciona con cualquier ROM que use el cable en modo multijugador.

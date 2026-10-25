@@ -1,0 +1,6 @@
+Arcadia Web 2.3.2
+
+- GBA · cable link: corregido el aviso de “cable link no reconocido” (Mario Kart y otros juegos). El puerto link informaba al revés quién es maestro y si estaban conectadas las consolas. Para jugar, los dos deben abrir su juego, conectar con 🔗 Link y recién después entrar al menú multijugador del juego.
+- Actualizaciones limpias: al abrir una versión nueva, Arcadia borra solo la memoria vieja del navegador (caché y modo instalable) y se recarga una vez. Tus partidas, ROMs y ajustes no se borran.
+- Aviso de archivos mezclados: si GitHub conserva archivos viejos, Arcadia te lo dice con el nombre del archivo. Las novedades se abren solas una vez por versión y solo muestran lo de esta versión.
+- GBA: cada juego abre su propia ROM (ya no se abre Pokémon Rubí en lugar de otro juego añadido) y el motor con sonido y sin lag al tocar queda como en la versión que funcionaba.

@@ -135,7 +135,7 @@ function render() {
     $('#storyStage').style.setProperty('--story-b', '#172638');
     $('#storyBackdrop').innerHTML = '';
     $('#storyProgress').innerHTML = '';
-    $('#storyDetails').innerHTML = `<div class="story-content version-info"><div class="story-platform">ARCADIA WEB · LANZAMIENTO 1.2</div><strong>Arcadia Web 1.2.0</strong><p>Biblioteca personal, emulador NES integrado, cinco ranuras de guardado y multijugador online.</p><div class="status-line"><span class="dot"></span> Multijugador en pruebas de estabilidad</div><p>La fluidez depende del dispositivo, la latencia y la ruta de conexión.</p><div class="story-actions"><button class="btn primary" id="versionRomsButton">Ver ROMs compatibles</button><button class="btn subtle" id="versionHomeButton">Volver al inicio</button></div></div>`;
+    $('#storyDetails').innerHTML = `<div class="story-content version-info"><div class="story-platform">ARCADIA WEB · VERSIÓN 2.3.2</div><strong>Arcadia Web 2.3.2</strong><p>Biblioteca personal con emuladores NES y GBA propios, cinco ranuras de guardado, multijugador NES online, cable link GBA por internet, celular como mando y modo TV.</p><div class="status-line"><span class="dot"></span> Online y cable link en pruebas de estabilidad</div><p>La fluidez depende del dispositivo, la latencia y la ruta de conexión.</p><div class="story-actions"><button class="btn primary" id="versionRomsButton">Ver ROMs compatibles</button><button class="btn subtle" id="versionHomeButton">Volver al inicio</button></div></div>`;
     $('#storyPrevious').disabled = true; $('#storyNext').disabled = true;
   } else if (game) {
     const colors = game.colors || ['#397c6f', '#25365b'];
@@ -1042,9 +1042,10 @@ const gbaKeyLabel=c=>({ArrowUp:'↑',ArrowDown:'↓',ArrowLeft:'←',ArrowRight:
 const gbaPadMapFor=pad=>({...gbaDefaultPad,...(pad&&gbaPadMaps[pad.id]||{})});
 function loadScriptOnce(src){return new Promise((res,rej)=>{const t=document.createElement('script');t.src=src;t.onload=res;t.onerror=()=>rej(new Error('No se pudo cargar '+src));document.head.appendChild(t);});}
 async function loadAny(list){let last;for(const u of list){try{await loadScriptOnce(u);return;}catch(e){last=e;}}throw new Error('No se encontró '+list[0]+' en tu sitio. Sube la carpeta vendor/gba completa (3 archivos) al repositorio.');}
+async function loadAnyBuild(ok,list){let last='';for(const u of list){try{await loadScriptOnce(u);if(ok())return;last='version';}catch(e){last=last||'falta';}}const f=list[0].split('?')[0];throw new Error(last==='version'?`El archivo ${f} publicado en tu sitio es de otra versión. Borra los archivos viejos de Arcadia en GitHub y sube de nuevo la versión ${window.ARCADIA_BUILD}.`:`No se encontró ${f} en tu sitio. Sube la carpeta vendor/gba completa.`);}
 async function ensureGbaCore(){
   if(window.ArcadiaGBA?.available?.())return;
-  if(!gbaLoading)gbaLoading=(async()=>{if(typeof window.GameBoyAdvanceEmulator!=='function')await loadAny(['vendor/gba/iodine-gba.min.js?v=2.3.1','iodine-gba.min.js?v=2.3.1','/vendor/gba/iodine-gba.min.js?v=2.3.1']);if(!window.ArcadiaGBA)await loadAny(['vendor/gba/gba-engine.js?v=2.3.1','gba-engine.js?v=2.3.1','/vendor/gba/gba-engine.js?v=2.3.1']);})().catch(e=>{gbaLoading=null;throw e;});
+  if(!gbaLoading)gbaLoading=(async()=>{if(window.GameBoyAdvanceEmulator?.ARC_BUILD!==window.ARCADIA_BUILD)await loadAnyBuild(()=>window.GameBoyAdvanceEmulator?.ARC_BUILD===window.ARCADIA_BUILD,['vendor/gba/iodine-gba.min.js?v=2.3.2','iodine-gba.min.js?v=2.3.2','/vendor/gba/iodine-gba.min.js?v=2.3.2']);if(window.ArcadiaGBA?.version!==window.ARCADIA_BUILD)await loadAnyBuild(()=>window.ArcadiaGBA?.version===window.ARCADIA_BUILD,['vendor/gba/gba-engine.js?v=2.3.2','gba-engine.js?v=2.3.2','/vendor/gba/gba-engine.js?v=2.3.2']);})().catch(e=>{gbaLoading=null;throw e;});
   await gbaLoading;
 }
 let gbaTurbo=false,gbaUserMuted=false;
@@ -1261,7 +1262,7 @@ document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('#gbaModa
 
 // News badge is lit only until the user opens the current release notes.
 (function setupArcadiaNews(){
-  const version='2.3.1';
+  const version='2.3.2';
   const dot=$('#newsButton'), panel=$('#newsPanel');
   if(!dot||!panel)return;
   let seen=''; try{seen=localStorage.getItem('arcadia-news-seen-version')||'';}catch{}
@@ -1269,6 +1270,7 @@ document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('#gbaModa
   const close=()=>panel.classList.remove('open');
   dot.addEventListener('click',()=>{panel.classList.add('open');dot.classList.remove('news-unread');try{localStorage.setItem('arcadia-news-seen-version',version);}catch{}});
   $('#newsClose')?.addEventListener('click',close);
+  if(seen!==version)setTimeout(()=>{if(!document.querySelector('.modal-bg.open,#gbaModal.open'))dot.click();},1200);
   panel.addEventListener('click',e=>{if(e.target===panel)close();});
 })();
 
@@ -1319,3 +1321,10 @@ document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('#gbaModa
 
 
 
+
+// Aviso si el sitio publica archivos de otra versión (quedan restos de actualizaciones viejas en GitHub).
+window.addEventListener('load',()=>setTimeout(()=>{
+  const want=window.ARCADIA_BUILD,have=window.ARCADIA_FILES||{},bad=['online.js','phone-pad.js','tv-mode.js','gba-link-net.js'].filter(f=>have[f]!==want);
+  const rv=(()=>{try{return document.getElementById('newsPanel')?.textContent.includes('Versión '+want);}catch{return true;}})();
+  if(want&&(bad.length||!rv))notify(`Hay archivos de otra versión publicados (${bad.join(', ')||'index.html'}). Borra lo viejo en GitHub y sube la versión ${want} completa.`,true);
+},2500));
