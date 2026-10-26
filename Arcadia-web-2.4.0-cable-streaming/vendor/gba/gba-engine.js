@@ -114,6 +114,12 @@
     setVolume(v) { this.volume = Math.max(0, Math.min(1, +v || 0)); this.applyVolume(); }
     setMuted(m) { this.muted = !!m; this.applyVolume(); }
     resume() { try { this.ctx?.resume?.(); } catch {} }
+    // Solo para el cable link remoto: el sonido de esta consola no suena aquí, se envía como pista de audio.
+    streamOnly() {
+      if (!this.ensureContext()) return null;
+      if (!this.dest) { this.dest = this.ctx.createMediaStreamDestination(); try { this.gain.disconnect(); } catch {} this.gain.connect(this.dest); this.muted = false; this.applyVolume(); }
+      return this.dest.stream;
+    }
     // — interfaz que espera el núcleo —
     initialize(channels, sampleRate) {
       this.channels = channels | 0 || 2; this.rate = Math.max(8000, Math.min(96000, Math.round(sampleRate) || 44100));
@@ -195,7 +201,7 @@
       const sound = new Sound();
       let saveKeyPrefix = opts.saveKeyPrefix || '';
       const legacyPrefix = opts.legacyPrefix || '';
-      let linkCfg = null, linkGate = null, timer = 0, destroyed = false, playing = false, speedPct = 0;
+      let timer = 0, destroyed = false, playing = false, speedPct = 0;
       const t0 = performance.now();
 
       core.settings.SKIPBoot = true;              // sin pantalla de arranque
@@ -239,13 +245,13 @@
       document.addEventListener('visibilitychange', () => { if (document.hidden) flush(); });
       // Reloj compartido: tanto el temporizador como requestAnimationFrame avanzan la emulación SOLO por el tiempo que se debe.
       // Así, si el navegador retrasa los temporizadores justo al tocar la pantalla (Android), el cuadro de animación toma el relevo.
-      const SLICE = 8; let last = performance.now(), owed = 0, raf = 0;
+      const SLICE = 8; let external = false, lastRom = null; let last = performance.now(), owed = 0, raf = 0;
       const pump = () => {
         if (destroyed || !timer) return;
         const now = performance.now();
         owed += Math.min(now - last, 100); last = now;
         let n = 0;
-        while (owed >= SLICE && n < 6) { if (linkGate && !linkGate()) break; core.timerCallback((now - t0) >>> 0); owed -= SLICE; n++; }
+        while (owed >= SLICE && n < 6) { core.timerCallback((now - t0) >>> 0); owed -= SLICE; n++; }
         if (owed > SLICE * 6) owed = 0;
       };
       const rafLoop = () => { if (destroyed) return; pump(); raf = requestAnimationFrame(rafLoop); };
@@ -253,12 +259,13 @@
       const engine = {
         core, screen, sound,
         setSaveKey(prefix) { saveKeyPrefix = prefix || ''; },
-        load(rom) { detectedType = detectSaveType(rom instanceof Uint8Array ? rom : new Uint8Array(rom)); core.attachROM(rom instanceof Uint8Array ? rom : new Uint8Array(rom)); },
+        load(rom) { lastRom = rom instanceof Uint8Array ? rom : new Uint8Array(rom); detectedType = detectSaveType(rom instanceof Uint8Array ? rom : new Uint8Array(rom)); core.attachROM(rom instanceof Uint8Array ? rom : new Uint8Array(rom)); },
         start() {
           if (destroyed) return;
           sound.ensureContext(); sound.resume();
           core.enableAudio();
           core.play();
+          if (external) return;
           if (!timer) { last = performance.now(); owed = 0; timer = setInterval(loop, 8); raf = requestAnimationFrame(rafLoop); }
         },
         saveNow() { flush(); },
@@ -290,15 +297,10 @@
         setSmoothing(on) { canvas.style.imageRendering = on ? 'auto' : 'pixelated'; },
         setSpeed(mult) { core.setSpeed(mult); },
         frames: () => screen.frames,
-        // — cable link: la red decide cuándo se intercambian paquetes (ver gba-link-net.js) —
-        linkConnect(id, ready) { linkCfg = { id: id | 0, ready: ready !== false }; (window.ArcadiaGBALinkHook = window.ArcadiaGBALinkHook || {}).cfg = linkCfg; const s = core.IOCore?.serial; if (s) s.linkConnect(linkCfg.id, linkCfg.ready); },
-        linkDisconnect() { linkCfg = null; window.ArcadiaGBALinkHook = null; linkGate = null; core.IOCore?.serial?.linkDisconnect(); },
-        linkOut() { const s = core.IOCore?.serial; if (!s || !linkCfg) return null; if (!s.link) s.linkConnect(linkCfg.id, linkCfg.ready); return s.linkOut(); },
-        linkTakeStart() { const s = core.IOCore?.serial; if (!s || !linkCfg || !s.link) return null; return s.linkTakeStart(); },
-        linkApply(d) { const s = core.IOCore?.serial; if (!s || !linkCfg) return false; if (!s.link) s.linkConnect(linkCfg.id, linkCfg.ready); return s.linkApply(d); },
-        linkActive: () => !!linkCfg,
-        setLinkGate(fn) { linkGate = fn || null; },
-        onFrame(fn) { (window.ArcadiaGBALinkHook = window.ArcadiaGBALinkHook || {}).onVBlank = fn || null; },
+        // — cable link: un segundo núcleo en la misma página (ver gba-link-net.js); un controlador externo reparte el tiempo —
+        rom: () => lastRom,
+        setExternalDriver(on) { external = !!on; if (external && timer) { clearInterval(timer); timer = 0; cancelAnimationFrame(raf); } },
+        audioStream: () => sound.streamOnly(),
         async deleteSave() { /* usa la clave del juego actual */ const n = core.getGameName?.(); if (n) await saveDelete(saveKeyPrefix + n); },
         destroy() {
           try { flush(); } catch {}
@@ -313,5 +315,5 @@
     }
   };
   window.ArcadiaGBA = ArcadiaGBA;
-  ArcadiaGBA.version = '2.3.3';
+  ArcadiaGBA.version = '2.4.0';
 })();

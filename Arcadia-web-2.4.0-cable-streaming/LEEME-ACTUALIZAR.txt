@@ -4,4 +4,4 @@ COMO ACTUALIZAR (GitHub -> Cloudflare)
 2. Sube TODO el contenido de este zip (descomprimido), incluidas las carpetas art/ y vendor/.
 3. Espera a que Cloudflare termine de publicar y abre Arcadia. La primera vez se limpiara sola la memoria vieja
    (cache del navegador y del modo instalable) y se recargara una vez. Tus partidas guardadas, ROMs y ajustes NO se borran.
-4. Abre el boton de Novedades: debe decir la version 2.3.3. Si dice otra, aun hay archivos viejos publicados.
+4. Abre el boton de Novedades: debe decir la version 2.4.0. Si dice otra, aun hay archivos viejos publicados.
