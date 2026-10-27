@@ -1,4 +1,4 @@
-(window.ARCADIA_FILES=window.ARCADIA_FILES||{})['phone-pad.js']='2.4.0';
+(window.ARCADIA_FILES=window.ARCADIA_FILES||{})['phone-pad.js']='2.4.1';
 /* Arcadia · Mandos con el celular (v2.2.0)
  * La pantalla (TV, PC o tablet) crea una sala con un código; cada celular se conecta como mando (PeerJS directo)
  * y actúa como Jugador 1 o 2. Sirve para NES y para GBA. Dentro de una sala online el celular es "tu mando".

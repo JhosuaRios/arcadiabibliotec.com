@@ -1,6 +1,0 @@
-Arcadia Web 2.4.0
-
-- Corregido un error del emulador al leer el cable (causa raíz de que Mario Kart no reconociera al otro jugador).
-- Mario Kart Super Circuit ahora reconoce P1 y P2 en el Multi-Pak Link.
-- Nuevo modo online: el anfitrión emula las dos consolas y envía la consola 2 como vídeo y sonido.
-- Quien se une no necesita ROM; solo manda sus botones.
