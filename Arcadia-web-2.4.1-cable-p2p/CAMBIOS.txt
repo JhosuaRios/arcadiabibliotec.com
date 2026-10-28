@@ -1,5 +1,0 @@
-Arcadia Web 2.4.1
-
-- Cable link por internet de equipo a equipo: cada dispositivo corre su consola y solo se envían los botones (sin vídeo).
-- Los dos abren el mismo juego .gba; tu partida guardada se usa y se guarda en tu dispositivo.
-- Corregido un error del emulador al leer el cable: Mario Kart reconoce P1 y P2.

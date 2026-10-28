@@ -1,0 +1,5 @@
+Arcadia Web 2.4.2
+
+- Cable link por internet de equipo a equipo: cada dispositivo corre su consola y solo se envían los botones (sin vídeo).
+- Pokémon: se intercambian las partidas guardadas de los dos jugadores al conectar (antes la copia de la otra consola arrancaba sin partida).
+- Pokémon: el cable se identifica como en una consola real y no se repiten datos entre transferencias.

@@ -1,4 +1,4 @@
-(window.ARCADIA_FILES=window.ARCADIA_FILES||{})['gba-link-net.js']='2.4.1';
+(window.ARCADIA_FILES=window.ARCADIA_FILES||{})['gba-link-net.js']='2.4.2';
 /* Arcadia · Cable link GBA por internet: cada dispositivo emula las dos consolas y solo se intercambian los botones (lockstep). */
 (() => {
   'use strict';
@@ -45,7 +45,7 @@
   const b64 = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
   const unb64 = t => Uint8Array.from(atob(t), c => c.charCodeAt(0));
   const romHash = u8 => { let h = 2166136261; for (let i = 0; i < u8.length; i += 7) h = Math.imul(h ^ u8[i], 16777619); return (h >>> 0).toString(16) + ':' + u8.length; };
-  const mySave = () => { try { const x = N.mine.exportCurrentSave(); return x ? b64(x) : ''; } catch { return ''; } };
+  const mySave = () => { try { const x = eng().exportCurrentSave(); return x ? b64(x) : ''; } catch { return ''; } };
 
   /* Cada dispositivo emula LAS DOS consolas (la suya y una copia de la otra) con exactamente los mismos ciclos y se
    * intercambian solo los botones, aplicados el mismo cuadro en ambos lados (lockstep). Así el cable interno responde
@@ -61,10 +61,12 @@
     try {
       g = await window.ArcadiaGBA.create(cv, { biosUrl: 'vendor/gba/bios.bin', saveKeyPrefix: 'gbaG:' });
       g.audioStream();                                      // la consola copia no suena en tus altavoces
-      g.load(mine.rom()); await g.deleteSave();
+      g.load(mine.rom()); g.setExternalDriver(true); g.start();
+      for (let i = 0; i < 100 && !g.core.getGameName?.(); i++) await new Promise(r => setTimeout(r, 30));   // espera a que el núcleo lea el título del juego
+      await g.deleteSave();
       if (remoteSaveB64) await g.importCurrentSave(unb64(remoteSaveB64)); else g.restart();
     } catch (e) { cv.remove(); stopLink('No se pudo crear la segunda consola: ' + (e?.message || e)); return; }
-    g.setExternalDriver(true); mine.setExternalDriver(true); g.start();
+    mine.setExternalDriver(true);
     const cores = [mine.core, g.core]; const own = [];
     for (const c of cores) { own.push([Object.prototype.hasOwnProperty.call(c, 'audioUnderrunAdjustment'), c.audioUnderrunAdjustment]); c.audioUnderrunAdjustment = function () { this.CPUCyclesTotal = this.CPUCyclesPerIteration | 0; }; c.setIntervalRate(STEP_MS); }
     N.mine = mine; N.ghost = g; N.cv = cv; N.d = d; N.idx = N.role === 'host' ? 0 : 1;
@@ -100,6 +102,7 @@
       while (owed >= STEP_MS && n < 400) {
         if (N.step === 0) {
           const f = N.frame;
+          if (window.__arcLinkHook) { try { window.__arcLinkHook(f, N); } catch {} }
           if (N.rem[f] === undefined) { N.stalls++; if (owed > 60) owed = 60; break; }       // esperando los botones del otro jugador
           const mi = N.loc[f], ri = N.rem[f];
           applyMask(N.idx, N.mine.core, mi); applyMask(1 - N.idx, N.ghost.core, ri);
@@ -107,10 +110,12 @@
           N.loc[f + N.d] = m; send({ t: 'i', f: f + N.d, m });
           delete N.loc[f - 2]; delete N.rem[f - 2];
         }
+        // La consola esclava va siempre un paso por delante de la maestra: así, cuando el maestro inicia una transferencia,
+        // el esclavo ya atendió la anterior y su siguiente dato está listo (si fuera al revés, a veces se repetía un dato).
+        c1.CPUCyclesPerIteration = Q; c1.timerCallback(0);
         const cb = c0.IOCore.cyclesOveriteratedPreviously | 0;
         c0.timerCallback(0);
         const ran = Math.max(0, Q + cb - (c0.IOCore.cyclesOveriteratedPreviously | 0));
-        c1.CPUCyclesPerIteration = ran; c1.timerCallback(0);
         owed -= STEP_MS * (ran / Q); n++;
         if (++N.step >= 33 + ((N.frame & 3) === 3 ? 1 : 0)) { N.step = 0; N.frame++; }
       }
