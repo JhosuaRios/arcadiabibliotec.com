@@ -1,4 +1,4 @@
-(window.ARCADIA_FILES=window.ARCADIA_FILES||{})['gba-link-net.js']='2.4.2';
+(window.ARCADIA_FILES=window.ARCADIA_FILES||{})['gba-link-net.js']='2.4.4';
 /* Arcadia · Cable link GBA por internet: cada dispositivo emula las dos consolas y solo se intercambian los botones (lockstep). */
 (() => {
   'use strict';
@@ -168,8 +168,13 @@
   function bindConn(conn) {
     N.conn = conn;
     conn.on('data', onMessage);
-    const gone = () => { if (N.conn === conn) stopLink('Se perdió la conexión con el otro jugador.'); };
-    conn.on('close', gone); conn.on('error', gone);
+    // Tolerancia: un corte breve de red o un error no fatal no debe cerrar el cable; solo si el canal sigue caído tras unos segundos.
+    let pend = 0;
+    const gone = () => {
+      if (N.conn !== conn || pend) return;
+      pend = setTimeout(() => { pend = 0; if (N.conn === conn && !conn.open) stopLink('Se perdió la conexión con el otro jugador.'); }, 8000);
+    };
+    conn.on('close', gone); conn.on('error', e => { console.warn('Arcadia link error:', e); if (!conn.open) gone(); });
   }
   async function host() {
     if (N.peer) return;

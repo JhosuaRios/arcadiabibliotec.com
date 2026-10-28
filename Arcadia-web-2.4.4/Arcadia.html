@@ -74,7 +74,11 @@
     .creator-credit div{display:grid;gap:0}.creator-credit small{color:#c7d1da;font-size:9px;font-weight:750;letter-spacing:1.2px}.creator-credit strong{font-size:25px;line-height:1.08;letter-spacing:2px;color:#f5ffd9;text-shadow:0 0 20px #c4f36a33}
     .version-info{display:grid;gap:12px;max-width:620px;padding:18px;border:1px solid #ffffff20;border-radius:14px;background:#0b141fbb}.version-info strong{font-size:22px;color:var(--mint)}.version-info p{margin:0;color:#b3c1cc;font-size:12px}.version-info .status-line{display:flex;align-items:center;gap:8px;color:#dce8ed;font-size:11px}.version-info .dot{width:8px;height:8px;border-radius:50%;background:#c4f36a;box-shadow:0 0 12px #c4f36a66}.creator-brand{margin-left:9px;padding:5px 8px;border:1px solid #ffffff22;border-radius:7px;color:#c4f36a;font-size:9px;font-weight:850;letter-spacing:1.3px}
     @media(max-width:560px){.creator-credit{gap:9px;padding:9px 11px}.creator-credit strong{font-size:22px}.creator-credit small{font-size:8px}}
-  </style></head>
+  
+/* Pantalla completa NES: la barra superior no tapa el juego; aparece al acercar el cursor/tocar el borde superior y se oculta sola */
+.nes-session-fullscreen .session-toolbar{transform:translateY(-110%);opacity:0;pointer-events:none;transition:transform .18s ease,opacity .18s ease}
+.nes-session-fullscreen.show-bar .session-toolbar{transform:none;opacity:1;pointer-events:auto}
+</style></head>
 <body>
   <div class="app"><div class="layout">
     <aside class="sidebar" aria-label="Navegación principal">
@@ -1782,6 +1786,14 @@ function pollGamepad() {
   }
 })();
 
+</script>
+
+<script>
+(function(){const gs=document.getElementById('gameSession');if(!gs)return;let t=0;
+const show=()=>{gs.classList.add('show-bar');clearTimeout(t);t=setTimeout(()=>{if(!gs.querySelector('.session-toolbar:hover')&&document.getElementById('nesSettingsPanel')?.classList.contains('hide'))gs.classList.remove('show-bar');else show();},2500);};
+const near=e=>{if(!gs.classList.contains('nes-session-fullscreen'))return;if(e.clientY<=64)show();};
+document.addEventListener('mousemove',near,{passive:true});document.addEventListener('pointerdown',near,{passive:true});
+document.addEventListener('fullscreenchange',()=>{clearTimeout(t);gs.classList.remove('show-bar');});})();
 </script>
 </body>
 </html>
