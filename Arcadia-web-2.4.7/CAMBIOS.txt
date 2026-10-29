@@ -1,0 +1,4 @@
+Arcadia Web 2.4.7
+
+- Cable link: arreglado el bloqueo al conectar (una consola esperaba para siempre los botones que la otra mandó mientras se preparaba). Era la causa de que Mario Kart y Pokémon se quedaran en blanco o en 'Espera un momento'.
+- Cable link: reloj en Web Worker, partida guardada en trozos, tolera cortes breves. NES en pantalla completa sin barra encima.

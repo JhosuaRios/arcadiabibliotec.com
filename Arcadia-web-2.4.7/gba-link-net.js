@@ -1,4 +1,4 @@
-(window.ARCADIA_FILES=window.ARCADIA_FILES||{})['gba-link-net.js']='2.4.6';
+(window.ARCADIA_FILES=window.ARCADIA_FILES||{})['gba-link-net.js']='2.4.7';
 /* Arcadia · Cable link GBA por internet: cada dispositivo emula las dos consolas y solo se intercambian los botones (lockstep). */
 (() => {
   'use strict';
@@ -54,6 +54,7 @@
     const mine = eng();
     if (!mine?.rom?.()) { stopLink('Abre primero tu juego GBA.'); return; }
     N.starting = true; N.status = 'Preparando las dos consolas…'; render();
+    if (window.__ARC_BEGIN_DELAY) await new Promise(r => setTimeout(r, window.__ARC_BEGIN_DELAY));   // solo para pruebas
     const cv = document.createElement('canvas');
     cv.style.cssText = 'position:fixed;left:-9999px;top:0;width:240px;height:160px';
     document.body.appendChild(cv);
@@ -81,8 +82,8 @@
     const c0 = N.idx === 0 ? mine.core : g.core, c1 = N.idx === 0 ? g.core : mine.core;
     c0.IOCore.serial.linkConnect(0, c1.IOCore.serial); c1.IOCore.serial.linkConnect(1, c0.IOCore.serial);
     N.c0 = c0; N.c1 = c1; N.Q = c0.CPUCyclesPerIteration | 0;
-    N.loc = {}; N.rem = {}; N.cur = [0, 0]; N.frame = 0; N.step = 0;
-    for (let f = 0; f < d; f++) { N.loc[f] = 0; N.rem[f] = 0; }
+    N.loc = {}; N.rem = N.rem || {}; N.cur = [0, 0]; N.frame = 0; N.step = 0;
+    for (let f = 0; f < d; f++) { N.loc[f] = 0; if (N.rem[f] === undefined) N.rem[f] = 0; }   // no se borran los botones que el otro ya mandó mientras esta consola se preparaba
     startDriver();
     N.starting = false; N.active = true; N.status = 'Conectado: tú eres la consola ' + (N.idx + 1);
     render();
@@ -146,7 +147,7 @@
     const was = N.active || N.starting || !!N.conn;
     if (N.mine) stopDual();
     try { N.conn?.close(); } catch {} try { N.peer?.destroy(); } catch {}
-    N.conn = N.peer = null; N.role = ''; N.code = ''; N.active = false; N.starting = false;
+    N.rem = {}; N.rx = null; N.conn = N.peer = null; N.role = ''; N.code = ''; N.active = false; N.starting = false;
     N.status = reason || 'Sin conexión';
     if (was && reason) say(reason);
     render();
