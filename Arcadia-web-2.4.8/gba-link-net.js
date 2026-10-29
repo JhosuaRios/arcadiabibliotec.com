@@ -1,4 +1,4 @@
-(window.ARCADIA_FILES=window.ARCADIA_FILES||{})['gba-link-net.js']='2.4.7';
+(window.ARCADIA_FILES=window.ARCADIA_FILES||{})['gba-link-net.js']='2.4.8';
 /* Arcadia · Cable link GBA por internet: cada dispositivo emula las dos consolas y solo se intercambian los botones (lockstep). */
 (() => {
   'use strict';
@@ -39,7 +39,7 @@
   /* ───────────── estado ───────────── */
   const N = { peer: null, conn: null, role: '', code: '', active: false, starting: false, status: 'Sin conexión', rtt: 0, d: 0,
               mine: null, ghost: null, cv: null, timer: 0, raf: 0, frame: 0, step: 0, idx: 0, loc: {}, rem: {}, cur: [0, 0],
-              held: 0, tapped: 0, orig: null, stalls: 0 };
+              held: 0, tapped: 0, orig: null, stalls: 0, hs: {}, rh: {}, desync: 0 };
   const send = o => { try { if (N.conn?.open) N.conn.send(o); } catch {} };
   const STEP_MS = 0.5;                                      // el cable se atiende cada medio milisegundo de juego
   const b64 = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
@@ -79,6 +79,14 @@
     mine.releaseAll = () => { N.held = 0; };
     mine.restart = () => stopLink('Reiniciar el juego cierra el cable link.');
     mine.core.restart(); g.core.restart();
+    // Tras reiniciar, cada núcleo carga su partida de forma asíncrona y hasta entonces no ejecuta nada; si no se espera,
+    // cada dispositivo empieza con unos cuadros de diferencia y las dos copias del juego se desincronizan.
+    for (let i = 0; i < 400 && cores.some(c => (c.emulatorStatus & 5) !== 5); i++) await new Promise(r => setTimeout(r, 15));
+    for (const c of cores) { try { const m = c.IOCore.memory; m.internalRAM.fill(0); m.externalRAM.fill(0); } catch {} }   // memoria limpia en las dos copias (si no, quedan restos distintos de la partida anterior)
+    { const Qn = g.core.CPUCyclesPerIteration | 0;   // contadores de ciclos idénticos en las dos copias (la consola propia ya venía corriendo y la copia no)
+      for (const c of cores) { c.IOCore.cyclesOveriteratedPreviously = 0; c.CPUCyclesTotal = 0; c.CPUCyclesPerIteration = Qn; } }
+    try { const hh = u => { let h = 2166136261; for (let i = 0; i < u.length; i++) h = Math.imul(h ^ u[i], 16777619); return h >>> 0; };
+      N.init = cores.map(c => { const sv = c.IOCore.saves; const ex = sv.exportSave?.(); return { type: sv.saveType, sh: ex ? hh(ex) : 0, len: ex ? ex.length : 0, st: c.emulatorStatus, name: c.getGameName?.() }; }); } catch (e) { N.init = String(e); }
     const c0 = N.idx === 0 ? mine.core : g.core, c1 = N.idx === 0 ? g.core : mine.core;
     c0.IOCore.serial.linkConnect(0, c1.IOCore.serial); c1.IOCore.serial.linkConnect(1, c0.IOCore.serial);
     N.c0 = c0; N.c1 = c1; N.Q = c0.CPUCyclesPerIteration | 0;
@@ -87,6 +95,12 @@
     startDriver();
     N.starting = false; N.active = true; N.status = 'Conectado: tú eres la consola ' + (N.idx + 1);
     render();
+  }
+  const ramHash = c => { const m = c.IOCore.memory.internalRAM; let h = 2166136261; for (let i = 0; i < m.length; i += 4) h = Math.imul(h ^ (m[i] | (m[i + 1] << 8) | (m[i + 2] << 16) | (m[i + 3] << 24)), 16777619); return h >>> 0; };
+  function checkHash(f) {
+    const a = N.hs?.[f], b = N.rh?.[f]; if (!a || !b) return;
+    if ((a[0] !== b[0] || a[1] !== b[1]) && !N.desync) { N.desync = f; N.dbg = [a, b]; N.desyncWhich = (a[0] !== b[0] ? 'J1 ' : '') + (a[1] !== b[1] ? 'J2' : ''); console.warn('Arcadia link: desincronizado en cuadro', f, N.desyncWhich); }
+    delete N.hs[f - 600]; delete N.rh[f - 600];
   }
   function applyMask(i, core, m) {
     const prev = N.cur[i]; if (prev === m) return;
@@ -118,7 +132,10 @@
         c0.timerCallback(0);
         const ran = Math.max(0, Q + cb - (c0.IOCore.cyclesOveriteratedPreviously | 0));
         owed -= STEP_MS * (ran / Q); n++;
-        if (++N.step >= 33 + ((N.frame & 3) === 3 ? 1 : 0)) { N.step = 0; N.frame++; }
+        if (++N.step >= 33 + ((N.frame & 3) === 3 ? 1 : 0)) {
+          N.step = 0; N.frame++;
+          if (N.frame % (window.__ARC_HF || 30) === 0) { const hv = [ramHash(c0), ramHash(c1)]; N.hs[N.frame] = hv; (N.hlog = N.hlog || []).push([N.frame, hv[0], hv[1]]); send({ t: 'h', f: N.frame, h: hv }); checkHash(N.frame); }
+        }
       }
       if (owed > 100) owed = 0;
     };
@@ -147,31 +164,32 @@
     const was = N.active || N.starting || !!N.conn;
     if (N.mine) stopDual();
     try { N.conn?.close(); } catch {} try { N.peer?.destroy(); } catch {}
-    N.rem = {}; N.rx = null; N.conn = N.peer = null; N.role = ''; N.code = ''; N.active = false; N.starting = false;
+    window.__ARC_RTC_BASE = 0; N.rem = {}; N.rx = null; N.hs = {}; N.rh = {}; N.desync = 0; N.conn = N.peer = null; N.role = ''; N.code = ''; N.active = false; N.starting = false;
     N.status = reason || 'Sin conexión';
     if (was && reason) say(reason);
     render();
   }
   // La partida guardada se manda en trozos pequeños (un mensaje grande puede cerrar el canal WebRTC en algunos navegadores).
   const CH = 12000;
-  function sendInit(withD) {
+  function sendInit(withD, rt) {
     const e = eng(); const sv = mySave(); const n = Math.ceil(sv.length / CH);
-    const o = { t: 'init', h: romHash(e.rom()), n }; if (withD) o.d = withD; send(o);
+    const o = { t: 'init', h: romHash(e.rom()), n }; if (withD) o.d = withD; if (rt) o.rt = rt; send(o);
     for (let i = 0; i < n; i++) send({ t: 'sv', i, p: sv.slice(i * CH, (i + 1) * CH) });
   }
   function startFromInit(rx) {
     const save = rx.parts.join('');
     if (N.role === 'host') {
       const dly = Math.max(5, Math.min(30, Math.ceil(((N.rtt || 120) / 2 + 45) / 16.6) + 1));
-      sendInit(dly); begin(save, dly).catch(e => stopLink('Error al sincronizar: ' + (e?.message || e)));
-    } else begin(save, rx.d | 0 || 12).catch(e => stopLink('Error al sincronizar: ' + (e?.message || e)));
+      const rt = Date.now(); window.__ARC_RTC_BASE = rt;
+      sendInit(dly, rt); begin(save, dly).catch(e => stopLink('Error al sincronizar: ' + (e?.message || e)));
+    } else { window.__ARC_RTC_BASE = rx.rt || 0; begin(save, rx.d | 0 || 12).catch(e => stopLink('Error al sincronizar: ' + (e?.message || e))); }
   }
   function onMessage(d) {
     if (!d || typeof d !== 'object') return;
     if (d.t === 'init') {
       const e = eng(); if (!e?.rom?.()) { send({ t: 'bye', why: 'El otro jugador no tiene un juego abierto.' }); return; }
       if (d.h !== romHash(e.rom())) { send({ t: 'bye', why: 'Los dos deben abrir exactamente el mismo juego (.gba).' }); stopLink('Los dos deben abrir exactamente el mismo juego (.gba).'); return; }
-      N.rx = { n: d.n | 0, d: d.d | 0, parts: [], got: 0 };
+      N.rx = { n: d.n | 0, d: d.d | 0, rt: +d.rt || 0, parts: [], got: 0 };
       N.status = 'Sincronizando las consolas…'; render();
       if (!N.rx.n) { const rx = N.rx; N.rx = null; startFromInit(rx); }
     }
@@ -179,6 +197,7 @@
       N.rx.parts[d.i | 0] = String(d.p || ''); N.rx.got++;
       if (N.rx.got >= N.rx.n) { const rx = N.rx; N.rx = null; startFromInit(rx); }
     }
+    else if (d.t === 'h') { N.rh[d.f | 0] = d.h; checkHash(d.f | 0); }
     else if (d.t === 'i') { N.rem[d.f | 0] = d.m | 0; }
     else if (d.t === 'ping') send({ t: 'pong', ts: d.ts });
     else if (d.t === 'pong') N.rtt = Math.round(performance.now() - d.ts);
@@ -289,7 +308,7 @@
     if (N.active) {
       send({ t: 'ping', ts: performance.now() });
       chip.style.display = $('#gbaModal')?.classList.contains('open') ? 'block' : 'none';
-      chip.textContent = N.role === 'host' ? `🔗 Cable · J1 · ${N.rtt || '…'} ms${stallTxt()}` : `🔗 Cable · J2 · ${N.rtt || '…'} ms${stallTxt()}`;
+      chip.textContent = N.role === 'host' ? `🔗 Cable · J1 · ${N.rtt || '…'} ms${stallTxt()}${N.desync ? ' · ⚠ desincronizado (' + N.desyncWhich + ')' : ''}` : `🔗 Cable · J2 · ${N.rtt || '…'} ms${stallTxt()}${N.desync ? ' · ⚠ desincronizado (' + N.desyncWhich + ')' : ''}`;
       if (panel.classList.contains('open')) render();
     } else chip.style.display = 'none';
   }, 1500);

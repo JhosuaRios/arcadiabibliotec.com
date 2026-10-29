@@ -1,0 +1,4 @@
+Arcadia Web 2.4.8
+
+- Cable link: las dos consolas ahora arrancan idénticas en ambos equipos (antes cada equipo esperaba un tiempo distinto a cargar la partida y las copias se desincronizaban; era la causa de que Pokémon se quedara en 'Espera un momento').
+- Cable link: todas las consolas leen la misma hora; el indicador avisa si se desincronizan. Arreglado el bloqueo al conectar; reloj en Web Worker; partida guardada en trozos. NES en pantalla completa sin barra encima.
