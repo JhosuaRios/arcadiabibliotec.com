@@ -1,4 +1,4 @@
-(window.ARCADIA_FILES=window.ARCADIA_FILES||{})['online.js']='2.4.5';
+(window.ARCADIA_FILES=window.ARCADIA_FILES||{})['online.js']='2.4.6';
 /* Arcadia Online · partida de 2 jugadores por conexión directa (WebRTC).
  *
  * - El ANFITRIÓN es el dispositivo que ejecuta el emulador (sin servidor de juego).

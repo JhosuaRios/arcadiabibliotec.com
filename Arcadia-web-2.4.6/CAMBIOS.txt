@@ -1,0 +1,4 @@
+Arcadia Web 2.4.6
+
+- Cable link: el reloj de la consola copia corre en un Web Worker para que no se congele si una pestaña queda en segundo plano; el indicador muestra 'esperando al otro jugador' si hay pausa.
+- Cable link: partida guardada en trozos pequeños; tolera cortes breves; NES pantalla completa sin barra encima.

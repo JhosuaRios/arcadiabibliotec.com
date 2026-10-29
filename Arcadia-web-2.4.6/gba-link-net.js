@@ -1,4 +1,4 @@
-(window.ARCADIA_FILES=window.ARCADIA_FILES||{})['gba-link-net.js']='2.4.5';
+(window.ARCADIA_FILES=window.ARCADIA_FILES||{})['gba-link-net.js']='2.4.6';
 /* Arcadia · Cable link GBA por internet: cada dispositivo emula las dos consolas y solo se intercambian los botones (lockstep). */
 (() => {
   'use strict';
@@ -121,12 +121,17 @@
       }
       if (owed > 100) owed = 0;
     };
-    N.timer = setInterval(tick, 6);
+    // El reloj va en un Web Worker: así el navegador no lo frena cuando la pestaña queda en segundo plano (si lo frenara,
+    // la otra consola se quedaría esperando y el juego parecería congelado).
+    try {
+      const url = URL.createObjectURL(new Blob(['setInterval(()=>postMessage(0),6)'], { type: 'text/javascript' }));
+      N.wk = new Worker(url); URL.revokeObjectURL(url); N.wk.onmessage = tick; N.timer = 0;
+    } catch { N.timer = setInterval(tick, 6); }
     const loop = () => { if (!N.mine) return; tick(); N.raf = requestAnimationFrame(loop); };
     N.raf = requestAnimationFrame(loop);
   }
   function stopDual() {
-    clearInterval(N.timer); N.timer = 0; cancelAnimationFrame(N.raf);
+    clearInterval(N.timer); N.timer = 0; try { N.wk?.terminate(); } catch {} N.wk = null; cancelAnimationFrame(N.raf);
     const { mine, ghost, cv, orig } = N; N.mine = N.ghost = N.cv = null; N.orig = null;
     if (mine && orig) {
       try { mine.core.IOCore.serial.linkDisconnect(); } catch {}
@@ -277,11 +282,13 @@
   }
   addButton();
 
+  let lastSt = 0, lastFr = 0;
+  const stallTxt = () => { const r = N.frame === lastFr && N.stalls > lastSt; lastFr = N.frame; lastSt = N.stalls; return r ? ' · esperando al otro jugador…' : ''; };
   setInterval(() => {
     if (N.active) {
       send({ t: 'ping', ts: performance.now() });
       chip.style.display = $('#gbaModal')?.classList.contains('open') ? 'block' : 'none';
-      chip.textContent = N.role === 'host' ? `🔗 Cable · J1 · ${N.rtt || '…'} ms` : `🔗 Cable · J2 · ${N.rtt || '…'} ms`;
+      chip.textContent = N.role === 'host' ? `🔗 Cable · J1 · ${N.rtt || '…'} ms${stallTxt()}` : `🔗 Cable · J2 · ${N.rtt || '…'} ms${stallTxt()}`;
       if (panel.classList.contains('open')) render();
     } else chip.style.display = 'none';
   }, 1500);

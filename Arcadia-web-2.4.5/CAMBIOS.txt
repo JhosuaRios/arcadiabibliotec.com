@@ -1,5 +1,0 @@
-Arcadia Web 2.4.5
-
-- Cable link: la partida guardada se envía en trozos pequeños y el estado 'Sincronizando' ya no se queda colgado (error visible si algo falla).
-- NES en pantalla completa: la barra superior ya no tapa el juego.
-- Cable link: tolera cortes breves de red (8 s).
