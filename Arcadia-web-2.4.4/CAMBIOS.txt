@@ -1,5 +1,0 @@
-Arcadia Web 2.4.4
-
-- NES en pantalla completa: la barra superior ya no tapa el juego; aparece al acercar el cursor o tocar el borde superior y se oculta sola.
-- Cable link: ya no se cierra por cortes breves de red (espera 8 s).
-- Pokémon por cable link: conecta y entra al Coliseo.

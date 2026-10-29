@@ -1,4 +1,4 @@
-(window.ARCADIA_FILES=window.ARCADIA_FILES||{})['gba-link-net.js']='2.4.4';
+(window.ARCADIA_FILES=window.ARCADIA_FILES||{})['gba-link-net.js']='2.4.5';
 /* Arcadia · Cable link GBA por internet: cada dispositivo emula las dos consolas y solo se intercambian los botones (lockstep). */
 (() => {
   'use strict';
@@ -146,19 +146,32 @@
     if (was && reason) say(reason);
     render();
   }
+  // La partida guardada se manda en trozos pequeños (un mensaje grande puede cerrar el canal WebRTC en algunos navegadores).
+  const CH = 12000;
   function sendInit(withD) {
-    const e = eng(); const o = { t: 'init', h: romHash(e.rom()), save: mySave() };
-    if (withD) o.d = withD; send(o);
+    const e = eng(); const sv = mySave(); const n = Math.ceil(sv.length / CH);
+    const o = { t: 'init', h: romHash(e.rom()), n }; if (withD) o.d = withD; send(o);
+    for (let i = 0; i < n; i++) send({ t: 'sv', i, p: sv.slice(i * CH, (i + 1) * CH) });
+  }
+  function startFromInit(rx) {
+    const save = rx.parts.join('');
+    if (N.role === 'host') {
+      const dly = Math.max(5, Math.min(30, Math.ceil(((N.rtt || 120) / 2 + 45) / 16.6) + 1));
+      sendInit(dly); begin(save, dly).catch(e => stopLink('Error al sincronizar: ' + (e?.message || e)));
+    } else begin(save, rx.d | 0 || 12).catch(e => stopLink('Error al sincronizar: ' + (e?.message || e)));
   }
   function onMessage(d) {
     if (!d || typeof d !== 'object') return;
     if (d.t === 'init') {
       const e = eng(); if (!e?.rom?.()) { send({ t: 'bye', why: 'El otro jugador no tiene un juego abierto.' }); return; }
       if (d.h !== romHash(e.rom())) { send({ t: 'bye', why: 'Los dos deben abrir exactamente el mismo juego (.gba).' }); stopLink('Los dos deben abrir exactamente el mismo juego (.gba).'); return; }
-      if (N.role === 'host') {
-        const dly = Math.max(5, Math.min(30, Math.ceil(((N.rtt || 120) / 2 + 45) / 16.6) + 1));
-        sendInit(dly); begin(d.save, dly);
-      } else begin(d.save, d.d | 0 || 12);
+      N.rx = { n: d.n | 0, d: d.d | 0, parts: [], got: 0 };
+      N.status = 'Sincronizando las consolas…'; render();
+      if (!N.rx.n) { const rx = N.rx; N.rx = null; startFromInit(rx); }
+    }
+    else if (d.t === 'sv' && N.rx) {
+      N.rx.parts[d.i | 0] = String(d.p || ''); N.rx.got++;
+      if (N.rx.got >= N.rx.n) { const rx = N.rx; N.rx = null; startFromInit(rx); }
     }
     else if (d.t === 'i') { N.rem[d.f | 0] = d.m | 0; }
     else if (d.t === 'ping') send({ t: 'pong', ts: d.ts });
