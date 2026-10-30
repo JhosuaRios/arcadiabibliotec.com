@@ -1,0 +1,4 @@
+Arcadia Web 2.4.9
+
+- Cable link: botón 'Copiar diagnóstico' en el panel y aviso visible (con el cuadro) si las consolas se desincronizan; la hora del reloj de Pokémon ya no depende de la zona horaria del dispositivo.
+- Cable link: las dos consolas arrancan idénticas en ambos equipos; mismo reloj; sin bloqueos al conectar; reloj en Web Worker; partida guardada en trozos. NES en pantalla completa sin barra encima.

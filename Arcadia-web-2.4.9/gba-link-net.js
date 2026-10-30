@@ -1,4 +1,4 @@
-(window.ARCADIA_FILES=window.ARCADIA_FILES||{})['gba-link-net.js']='2.4.8';
+(window.ARCADIA_FILES=window.ARCADIA_FILES||{})['gba-link-net.js']='2.4.9';
 /* Arcadia · Cable link GBA por internet: cada dispositivo emula las dos consolas y solo se intercambian los botones (lockstep). */
 (() => {
   'use strict';
@@ -60,7 +60,7 @@
     document.body.appendChild(cv);
     let g;
     try {
-      g = await window.ArcadiaGBA.create(cv, { biosUrl: 'vendor/gba/bios.bin', saveKeyPrefix: 'gbaG:' });
+      g = await window.ArcadiaGBA.create(cv, { biosUrl: 'vendor/gba/bios.bin', saveKeyPrefix: window.__ARC_GHOST_PREFIX || 'gbaG:' });
       g.audioStream();                                      // la consola copia no suena en tus altavoces
       g.load(mine.rom()); g.setExternalDriver(true); g.start();
       for (let i = 0; i < 100 && !g.core.getGameName?.(); i++) await new Promise(r => setTimeout(r, 30));   // espera a que el núcleo lea el título del juego
@@ -89,6 +89,7 @@
       N.init = cores.map(c => { const sv = c.IOCore.saves; const ex = sv.exportSave?.(); return { type: sv.saveType, sh: ex ? hh(ex) : 0, len: ex ? ex.length : 0, st: c.emulatorStatus, name: c.getGameName?.() }; }); } catch (e) { N.init = String(e); }
     const c0 = N.idx === 0 ? mine.core : g.core, c1 = N.idx === 0 ? g.core : mine.core;
     c0.IOCore.serial.linkConnect(0, c1.IOCore.serial); c1.IOCore.serial.linkConnect(1, c0.IOCore.serial);
+    N.initOrd = N.idx === 0 ? N.init : (Array.isArray(N.init) ? [N.init[1], N.init[0]] : N.init); send({ t: 'ih', i: N.initOrd }); checkInit();
     N.c0 = c0; N.c1 = c1; N.Q = c0.CPUCyclesPerIteration | 0;
     N.loc = {}; N.rem = N.rem || {}; N.cur = [0, 0]; N.frame = 0; N.step = 0;
     for (let f = 0; f < d; f++) { N.loc[f] = 0; if (N.rem[f] === undefined) N.rem[f] = 0; }   // no se borran los botones que el otro ya mandó mientras esta consola se preparaba
@@ -101,6 +102,15 @@
     const a = N.hs?.[f], b = N.rh?.[f]; if (!a || !b) return;
     if ((a[0] !== b[0] || a[1] !== b[1]) && !N.desync) { N.desync = f; N.dbg = [a, b]; N.desyncWhich = (a[0] !== b[0] ? 'J1 ' : '') + (a[1] !== b[1] ? 'J2' : ''); console.warn('Arcadia link: desincronizado en cuadro', f, N.desyncWhich); }
     delete N.hs[f - 600]; delete N.rh[f - 600];
+  }
+  function checkInit() {
+    if (!N.initOrd || !N.rinit) return;
+    const f = a => JSON.stringify(a.map(x => [x.type, x.sh]));
+    N.initMismatch = f(N.initOrd) !== f(N.rinit) ? 'las partidas guardadas de las dos consolas no coinciden' : '';
+  }
+  function report() {
+    return JSON.stringify({ v: (window.ARCADIA_FILES || {})['gba-link-net.js'], ua: navigator.userAgent, role: N.role, rtt: N.rtt, d: N.d, frame: N.frame, stalls: N.stalls,
+      desync: N.desync, which: N.desyncWhich, initMismatch: N.initMismatch || '', init: N.initOrd, rinit: N.rinit, hlog: (N.hlog || []).slice(0, 12), rlog: N.rlog || [], rtc: window.__ARC_RTC_BASE, tz: new Date().getTimezoneOffset(), speed: N.mine && N.mine.speed ? N.mine.speed() : 0 });
   }
   function applyMask(i, core, m) {
     const prev = N.cur[i]; if (prev === m) return;
@@ -164,7 +174,7 @@
     const was = N.active || N.starting || !!N.conn;
     if (N.mine) stopDual();
     try { N.conn?.close(); } catch {} try { N.peer?.destroy(); } catch {}
-    window.__ARC_RTC_BASE = 0; N.rem = {}; N.rx = null; N.hs = {}; N.rh = {}; N.desync = 0; N.conn = N.peer = null; N.role = ''; N.code = ''; N.active = false; N.starting = false;
+    window.__ARC_RTC_BASE = 0; N.rem = {}; N.rx = null; N.rlog = []; N.rinit = null; N.initMismatch = ''; N.hlog = []; N.hs = {}; N.rh = {}; N.desync = 0; N.conn = N.peer = null; N.role = ''; N.code = ''; N.active = false; N.starting = false;
     N.status = reason || 'Sin conexión';
     if (was && reason) say(reason);
     render();
@@ -197,7 +207,8 @@
       N.rx.parts[d.i | 0] = String(d.p || ''); N.rx.got++;
       if (N.rx.got >= N.rx.n) { const rx = N.rx; N.rx = null; startFromInit(rx); }
     }
-    else if (d.t === 'h') { N.rh[d.f | 0] = d.h; checkHash(d.f | 0); }
+    else if (d.t === 'h') { N.rh[d.f | 0] = d.h; (N.rlog = N.rlog || []).length < 12 && N.rlog.push([d.f | 0, ...d.h]); checkHash(d.f | 0); }
+    else if (d.t === 'ih') { N.rinit = d.i; checkInit(); }
     else if (d.t === 'i') { N.rem[d.f | 0] = d.m | 0; }
     else if (d.t === 'ping') send({ t: 'pong', ts: d.ts });
     else if (d.t === 'pong') N.rtt = Math.round(performance.now() - d.ts);
@@ -273,8 +284,9 @@
       const hostSide = N.role === 'host';
       body.innerHTML = `<div class="gl-sec"><h3>Conectado</h3><p class="gl-ok">${N.status}${N.rtt ? ' · latencia ' + N.rtt + ' ms' : ''}</p>
         <p>${hostSide ? `Cada dispositivo corre su consola y una copia de la otra; solo viajan los botones (retraso de entrada ≈ ${Math.round(N.d*16.6)} ms). Entren los dos al menú del cable del juego (en Mario Kart: Multi-Pak Link). Tu partida se guarda solo en tu dispositivo.` : 'Cada dispositivo corre su consola y una copia de la otra; solo viajan los botones. Entren los dos al menú del cable del juego. Tu partida se guarda solo en tu dispositivo.'}</p>
-        <div class="gl-actions"><button class="danger" id="glStop">Desconectar</button></div></div>`;
+        <div class="gl-actions"><button id="glDiag">Copiar diagnóstico</button><button class="danger" id="glStop">Desconectar</button></div></div>`;
       $('#glStop').onclick = () => { send({ t: 'bye' }); stopLink('Desconectado.'); };
+      $('#glDiag').onclick = async () => { const t = report(); try { await navigator.clipboard.writeText(t); say('Diagnóstico copiado. Pégalo en el chat.'); } catch { prompt('Copia este diagnóstico:', t); } };
     } else if (N.peer && N.role === 'host') {
       body.innerHTML = `<div class="gl-sec"><h3>Tu código</h3><div class="gl-code">${N.code}</div><p>${N.status} El otro jugador debe abrir el MISMO juego .gba en su Arcadia → 🔗 Link → Unirse, y escribir este código.</p>
         <div class="gl-actions"><button class="danger" id="glStop">Cancelar</button></div></div>`;
@@ -308,10 +320,10 @@
     if (N.active) {
       send({ t: 'ping', ts: performance.now() });
       chip.style.display = $('#gbaModal')?.classList.contains('open') ? 'block' : 'none';
-      chip.textContent = N.role === 'host' ? `🔗 Cable · J1 · ${N.rtt || '…'} ms${stallTxt()}${N.desync ? ' · ⚠ desincronizado (' + N.desyncWhich + ')' : ''}` : `🔗 Cable · J2 · ${N.rtt || '…'} ms${stallTxt()}${N.desync ? ' · ⚠ desincronizado (' + N.desyncWhich + ')' : ''}`;
+      chip.textContent = N.role === 'host' ? `🔗 Cable · J1 · ${N.rtt || '…'} ms${stallTxt()}${N.desync ? ' · ⚠ desincronizado (' + N.desyncWhich + ', cuadro ' + N.desync + ')' : ''}${N.initMismatch ? ' · ⚠ ' + N.initMismatch : ''}` : `🔗 Cable · J2 · ${N.rtt || '…'} ms${stallTxt()}${N.desync ? ' · ⚠ desincronizado (' + N.desyncWhich + ', cuadro ' + N.desync + ')' : ''}${N.initMismatch ? ' · ⚠ ' + N.initMismatch : ''}`;
       if (panel.classList.contains('open')) render();
     } else chip.style.display = 'none';
   }, 1500);
 
-  window.arcadiaGbaLink = { open: openPanel, host, join, stop: () => stopLink('Desconectado.'), state: N };
+  window.arcadiaGbaLink = { open: openPanel, host, join, stop: () => stopLink('Desconectado.'), state: N, report };
 })();
