@@ -322,5 +322,5 @@
     }
   };
   window.ArcadiaGBA = ArcadiaGBA;
-  ArcadiaGBA.version = '2.6.0';
+  ArcadiaGBA.version = '2.6.1';
 })();

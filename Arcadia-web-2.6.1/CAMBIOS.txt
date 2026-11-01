@@ -1,0 +1,5 @@
+Arcadia Web 2.6.1
+
+- Cuentas: Arcadia ahora usa el proyecto de Firebase nuevo (arcadia-web-51df8); corrige el error 'api-key-not-valid'.
+- Cuenta opcional (botón ☁ del menú lateral): entra con Google o correo y tus partidas GBA y NES se guardan en la nube. Nadie está obligado a registrarse; las ROMs nunca se suben. Pasos de Firebase en LEEME-CUENTAS.txt.
+- Catálogo GBA con Mario Kart, Pokémon Rojo Fuego, Esmeralda y Super Mario Advance 2.

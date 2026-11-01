@@ -4,7 +4,7 @@ Nadie está obligado a registrarse: sin cuenta Arcadia funciona igual y las part
 Con cuenta (Google o correo) se copian a Firebase las partidas GBA (.sav) y los estados guardados de NES.
 Las ROMs NUNCA se suben: cada dispositivo necesita su propia ROM.
 
-PASOS UNICOS EN LA CONSOLA DE FIREBASE (proyecto arcadia-online-57be4)
+PASOS UNICOS EN LA CONSOLA DE FIREBASE (proyecto arcadia-web-51df8)
 1. Authentication > Sign-in method: activar "Google" y "Correo electrónico/contraseña".
 2. Authentication > Settings > Authorized domains: añadir el dominio donde publicas Arcadia
    (por ejemplo tu-sitio.pages.dev o tu dominio propio). Sin esto Google dará "dominio no autorizado".

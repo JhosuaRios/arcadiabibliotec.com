@@ -11,15 +11,16 @@
     console.info('[Arcadia Firebase]', text);
   };
   const config = {
-    apiKey: 'AIzaSyANmRBAWZnNr28rR_oIrnP6L4iD7q5pxZ4',
-    authDomain: 'arcadia-online-57be4.firebaseapp.com',
-    databaseURL: 'https://arcadia-online-57be4-default-rtdb.firebaseio.com',
-    projectId: 'arcadia-online-57be4',
-    storageBucket: 'arcadia-online-57be4.firebasestorage.app',
-    messagingSenderId: '409548940790',
-    appId: '1:409548940790:web:da9ebe1a646e64949313d7',
-    measurementId: 'G-BTLMYEN3DE'
+    apiKey: 'AIzaSyAEKuo_qJ2k6cA14rMDuzIBV74iVghyVuQ',
+    authDomain: 'arcadia-web-51df8.firebaseapp.com',
+    databaseURL: 'https://arcadia-web-51df8-default-rtdb.firebaseio.com',
+    projectId: 'arcadia-web-51df8',
+    storageBucket: 'arcadia-web-51df8.firebasestorage.app',
+    messagingSenderId: '547834358470',
+    appId: '1:547834358470:web:338bcaccb6f515acb345c7',
+    measurementId: 'G-5VVV7DNL23'
   };
+
   window.ARCADIA_FIREBASE_CONFIG = config;
   window.ARCADIA_FIREBASE_READY = (async () => {
     try {

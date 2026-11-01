@@ -1,4 +1,4 @@
-(window.ARCADIA_FILES=window.ARCADIA_FILES||{})['cloud-saves.js']='2.6.0';
+(window.ARCADIA_FILES=window.ARCADIA_FILES||{})['cloud-saves.js']='2.6.1';
 /* Arcadia · Cuenta opcional + partidas en la nube.
  * Nadie está obligado a registrarse: sin cuenta todo funciona igual y las partidas quedan en este navegador.
  * Con cuenta (Google o correo) se copian las partidas GBA (.sav) y los estados guardados de NES a Firebase Realtime Database
