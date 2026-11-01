@@ -1,0 +1,28 @@
+CUENTAS OPCIONALES Y PARTIDAS EN LA NUBE (Arcadia 2.6.0)
+=========================================================
+Nadie está obligado a registrarse: sin cuenta Arcadia funciona igual y las partidas quedan en el navegador.
+Con cuenta (Google o correo) se copian a Firebase las partidas GBA (.sav) y los estados guardados de NES.
+Las ROMs NUNCA se suben: cada dispositivo necesita su propia ROM.
+
+PASOS UNICOS EN LA CONSOLA DE FIREBASE (proyecto arcadia-online-57be4)
+1. Authentication > Sign-in method: activar "Google" y "Correo electrónico/contraseña".
+2. Authentication > Settings > Authorized domains: añadir el dominio donde publicas Arcadia
+   (por ejemplo tu-sitio.pages.dev o tu dominio propio). Sin esto Google dará "dominio no autorizado".
+3. Realtime Database > Rules: AÑADE (sin borrar lo que ya tengas para las salas online) este bloque dentro de "rules":
+
+    "users": {
+      "$uid": {
+        ".read":  "auth != null && auth.uid === $uid && auth.token.firebase.sign_in_provider !== 'anonymous'",
+        ".write": "auth != null && auth.uid === $uid && auth.token.firebase.sign_in_provider !== 'anonymous'"
+      }
+    }
+
+   Así cada persona solo puede leer y escribir SUS propias partidas, y solo con cuenta real (no anónima).
+4. Publicar las reglas.
+
+COMO FUNCIONA
+- Botón ☁ en el menú lateral > Cuenta. Se puede entrar con Google o con correo y contraseña.
+- Al entrar y cada minuto se sincronizan las partidas; al cerrar la pestaña también.
+- Si la misma partida cambió en dos dispositivos, gana la de este dispositivo y la otra queda como respaldo en la cuenta.
+- Si es la primera vez en un dispositivo y existen dos versiones distintas, Arcadia pregunta cuál usar (la otra se respalda).
+- Cerrar sesión no borra nada del dispositivo.

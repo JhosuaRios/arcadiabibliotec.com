@@ -1,0 +1,5 @@
+Arcadia Web 2.6.0
+
+- Cuenta opcional (botón ☁ del menú lateral): entra con Google o correo y tus partidas GBA y NES se guardan en la nube y se descargan en otros dispositivos. Nadie está obligado a registrarse; las ROMs nunca se suben.
+- Antes de usarlo, sigue los pasos de LEEME-CUENTAS.txt en la consola de Firebase (activar Google/correo, dominio autorizado y reglas).
+- Catálogo GBA con Mario Kart, Pokémon Rojo Fuego, Esmeralda y Super Mario Advance 2; el cable link ya no dibuja la copia de la otra consola.
