@@ -1,4 +1,4 @@
-(window.ARCADIA_FILES=window.ARCADIA_FILES||{})['gba-link-net.js']='2.4.11';
+(window.ARCADIA_FILES=window.ARCADIA_FILES||{})['gba-link-net.js']='2.5.0';
 /* Arcadia · Cable link GBA por internet: cada dispositivo emula las dos consolas y solo se intercambian los botones (lockstep). */
 (() => {
   'use strict';
@@ -62,7 +62,8 @@
     let g;
     try {
       g = await window.ArcadiaGBA.create(cv, { biosUrl: 'vendor/gba/bios.bin', saveKeyPrefix: window.__ARC_GHOST_PREFIX || 'gbaG:' });
-      g.audioStream(); g.setSaveWrites(false);                                      // la consola copia no suena en tus altavoces
+      g.audioStream(); g.setSaveWrites(false);
+      g.core.attachGraphicsFrameHandler({ copyBuffer() {}, frames: 0 });          // la copia no dibuja nada (ahorra trabajo, sobre todo en celulares)                                      // la consola copia no suena en tus altavoces
       // La copia recibe la partida del otro jugador DIRECTAMENTE (sin pasar por el almacenamiento del navegador, que podía pisarla
       // con una partida vacía) y nunca guarda nada.
       const rbytes = remoteSaveB64 ? unb64(remoteSaveB64) : null;

@@ -1,0 +1,5 @@
+Arcadia Web 2.5.0
+
+- Catálogo GBA: nuevos juegos destacados con portada: Mario Kart: Super Circuit, Pokémon Rojo Fuego, Pokémon Esmeralda y Super Mario World: Super Mario Advance 2 (cada uno pide tu propia ROM .gba la primera vez y la recuerda).
+- Cable link: la copia de la otra consola ya no dibuja imágenes, así que pesa menos en el celular.
+- Cable link: la partida de cada jugador se entrega directo a su copia; mensajes independientes del orden; aviso de desincronización y 'Copiar diagnóstico'.

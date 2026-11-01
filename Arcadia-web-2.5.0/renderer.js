@@ -70,7 +70,11 @@ const FEATURED_NES_GAMES = [
   { id: 'featured-nes-tetris', name: 'Tetris', platform: 'NES', kind: 'ROM', file: '', cover: 'arcadia://art/cover-tetris.webp', description: 'Clásico de puzles de NES · Selecciona tu archivo .nes para jugar', icon: '🧩', colors: ['#1d57cb', '#7c2ed8'] }
 ];
 const FEATURED_GBA_GAMES = [
-  { id: 'featured-gba-pokemon-ruby', name: 'Pokémon Rubí', platform: 'Game Boy Advance', kind: 'ROM', file: '', cover: 'arcadia://art/cover-pokemon-ruby.png', description: 'Game Boy Advance · Selecciona tu ROM propia .gba para jugar', icon: '🔥', colors: ['#a82727', '#451c20'] }
+  { id: 'featured-gba-pokemon-ruby', name: 'Pokémon Rubí', platform: 'Game Boy Advance', kind: 'ROM', file: '', cover: 'arcadia://art/cover-pokemon-ruby.png', description: 'Game Boy Advance · Selecciona tu ROM propia .gba para jugar', icon: '🔥', colors: ['#a82727', '#451c20'] },
+  { id: 'featured-gba-mario-kart-super-circuit', name: 'Mario Kart: Super Circuit', platform: 'Game Boy Advance', kind: 'ROM', file: '', cover: 'arcadia://art/cover-mario-kart-super-circuit.webp', description: 'Game Boy Advance · Carreras · Cable link online · Selecciona tu ROM propia .gba', icon: '🏁', colors: ['#2a7fd1', '#1b3b6e'] },
+  { id: 'featured-gba-pokemon-rojo-fuego', name: 'Pokémon Rojo Fuego', platform: 'Game Boy Advance', kind: 'ROM', file: '', cover: 'arcadia://art/cover-pokemon-rojo-fuego.webp', description: 'Game Boy Advance · Cable link online · Selecciona tu ROM propia .gba', icon: '🔥', colors: ['#e0562a', '#7a2410'] },
+  { id: 'featured-gba-pokemon-esmeralda', name: 'Pokémon Esmeralda', platform: 'Game Boy Advance', kind: 'ROM', file: '', cover: 'arcadia://art/cover-pokemon-esmeralda.webp', description: 'Game Boy Advance · Cable link online · Selecciona tu ROM propia .gba', icon: '💎', colors: ['#2e9a5b', '#12402a'] },
+  { id: 'featured-gba-super-mario-advance-2', name: 'Super Mario World: Super Mario Advance 2', platform: 'Game Boy Advance', kind: 'ROM', file: '', cover: 'arcadia://art/cover-super-mario-advance-2.webp', description: 'Game Boy Advance · Plataformas · Selecciona tu ROM propia .gba', icon: '🍄', colors: ['#6fb7e8', '#3a8a3a'] }
 ];
 const FEATURED_GAMES = [...FEATURED_NES_GAMES, ...FEATURED_GBA_GAMES];
 
@@ -135,7 +139,7 @@ function render() {
     $('#storyStage').style.setProperty('--story-b', '#172638');
     $('#storyBackdrop').innerHTML = '';
     $('#storyProgress').innerHTML = '';
-    $('#storyDetails').innerHTML = `<div class="story-content version-info"><div class="story-platform">ARCADIA WEB · VERSIÓN 2.4.11</div><strong>Arcadia Web 2.4.11</strong><p>Biblioteca personal con emuladores NES y GBA propios, cinco ranuras de guardado, multijugador NES online, cable link GBA por internet, celular como mando y modo TV.</p><div class="status-line"><span class="dot"></span> Online y cable link en pruebas de estabilidad</div><p>La fluidez depende del dispositivo, la latencia y la ruta de conexión.</p><div class="story-actions"><button class="btn primary" id="versionRomsButton">Ver ROMs compatibles</button><button class="btn subtle" id="versionHomeButton">Volver al inicio</button></div></div>`;
+    $('#storyDetails').innerHTML = `<div class="story-content version-info"><div class="story-platform">ARCADIA WEB · VERSIÓN 2.5.0</div><strong>Arcadia Web 2.5.0</strong><p>Biblioteca personal con emuladores NES y GBA propios, cinco ranuras de guardado, multijugador NES online, cable link GBA por internet, celular como mando y modo TV.</p><div class="status-line"><span class="dot"></span> Online y cable link en pruebas de estabilidad</div><p>La fluidez depende del dispositivo, la latencia y la ruta de conexión.</p><div class="story-actions"><button class="btn primary" id="versionRomsButton">Ver ROMs compatibles</button><button class="btn subtle" id="versionHomeButton">Volver al inicio</button></div></div>`;
     $('#storyPrevious').disabled = true; $('#storyNext').disabled = true;
   } else if (game) {
     const colors = game.colors || ['#397c6f', '#25365b'];
@@ -1046,7 +1050,7 @@ async function loadAny(list){let last;for(const u of list){try{await loadScriptO
 async function loadAnyBuild(ok,list){let last='';for(const u of list){try{await loadScriptOnce(u);if(ok())return;last='version';}catch(e){last=last||'falta';}}const f=list[0].split('?')[0];throw new Error(last==='version'?`El archivo ${f} publicado en tu sitio es de otra versión. Borra los archivos viejos de Arcadia en GitHub y sube de nuevo la versión ${window.ARCADIA_BUILD}.`:`No se encontró ${f} en tu sitio. Sube la carpeta vendor/gba completa.`);}
 async function ensureGbaCore(){
   if(window.ArcadiaGBA?.available?.())return;
-  if(!gbaLoading)gbaLoading=(async()=>{if(window.GameBoyAdvanceEmulator?.ARC_BUILD!==window.ARCADIA_BUILD)await loadAnyBuild(()=>window.GameBoyAdvanceEmulator?.ARC_BUILD===window.ARCADIA_BUILD,['vendor/gba/iodine-gba.min.js?v=2.4.11','iodine-gba.min.js?v=2.4.11','/vendor/gba/iodine-gba.min.js?v=2.4.11']);if(window.ArcadiaGBA?.version!==window.ARCADIA_BUILD)await loadAnyBuild(()=>window.ArcadiaGBA?.version===window.ARCADIA_BUILD,['vendor/gba/gba-engine.js?v=2.4.11','gba-engine.js?v=2.4.11','/vendor/gba/gba-engine.js?v=2.4.11']);})().catch(e=>{gbaLoading=null;throw e;});
+  if(!gbaLoading)gbaLoading=(async()=>{if(window.GameBoyAdvanceEmulator?.ARC_BUILD!==window.ARCADIA_BUILD)await loadAnyBuild(()=>window.GameBoyAdvanceEmulator?.ARC_BUILD===window.ARCADIA_BUILD,['vendor/gba/iodine-gba.min.js?v=2.5.0','iodine-gba.min.js?v=2.5.0','/vendor/gba/iodine-gba.min.js?v=2.5.0']);if(window.ArcadiaGBA?.version!==window.ARCADIA_BUILD)await loadAnyBuild(()=>window.ArcadiaGBA?.version===window.ARCADIA_BUILD,['vendor/gba/gba-engine.js?v=2.5.0','gba-engine.js?v=2.5.0','/vendor/gba/gba-engine.js?v=2.5.0']);})().catch(e=>{gbaLoading=null;throw e;});
   await gbaLoading;
 }
 let gbaTurbo=false,gbaUserMuted=false;
@@ -1263,7 +1267,7 @@ document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('#gbaModa
 
 // News badge is lit only until the user opens the current release notes.
 (function setupArcadiaNews(){
-  const version='2.4.11';
+  const version='2.5.0';
   const dot=$('#newsButton'), panel=$('#newsPanel');
   if(!dot||!panel)return;
   let seen=''; try{seen=localStorage.getItem('arcadia-news-seen-version')||'';}catch{}
