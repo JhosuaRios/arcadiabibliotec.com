@@ -1,0 +1,5 @@
+Arcadia Web 2.4.11
+
+- Cable link: la partida de cada jugador se entrega directo a la copia de su consola (antes quedaba en blanco y por eso las consolas se desincronizaban y Pokémon se quedaba en 'Espera un momento'); cada jugador conserva su propia partida.
+- Cable link: los mensajes ya no dependen del orden de llegada (podían perder la partida y dejar 'Sincronizando' colgado).
+- Cable link: aviso de desincronización con el cuadro y botón 'Copiar diagnóstico'; consolas idénticas al arrancar; mismo reloj; reloj en Web Worker. NES en pantalla completa sin barra encima.

@@ -1,4 +1,4 @@
-(window.ARCADIA_FILES=window.ARCADIA_FILES||{})['gba-link-net.js']='2.4.9';
+(window.ARCADIA_FILES=window.ARCADIA_FILES||{})['gba-link-net.js']='2.4.11';
 /* Arcadia · Cable link GBA por internet: cada dispositivo emula las dos consolas y solo se intercambian los botones (lockstep). */
 (() => {
   'use strict';
@@ -50,23 +50,32 @@
   /* Cada dispositivo emula LAS DOS consolas (la suya y una copia de la otra) con exactamente los mismos ciclos y se
    * intercambian solo los botones, aplicados el mismo cuadro en ambos lados (lockstep). Así el cable interno responde
    * al instante aunque la red tarde, y no se envía vídeo. */
-  async function begin(remoteSaveB64, d) {
+  async function begin(remoteSaveB64, d, remoteType) {
     const mine = eng();
     if (!mine?.rom?.()) { stopLink('Abre primero tu juego GBA.'); return; }
     N.starting = true; N.status = 'Preparando las dos consolas…'; render();
     if (window.__ARC_BEGIN_DELAY) await new Promise(r => setTimeout(r, window.__ARC_BEGIN_DELAY));   // solo para pruebas
+    const mineBytes = mine.exportCurrentSave(), myType = mine.saveType();
     const cv = document.createElement('canvas');
     cv.style.cssText = 'position:fixed;left:-9999px;top:0;width:240px;height:160px';
     document.body.appendChild(cv);
     let g;
     try {
       g = await window.ArcadiaGBA.create(cv, { biosUrl: 'vendor/gba/bios.bin', saveKeyPrefix: window.__ARC_GHOST_PREFIX || 'gbaG:' });
-      g.audioStream();                                      // la consola copia no suena en tus altavoces
+      g.audioStream(); g.setSaveWrites(false);                                      // la consola copia no suena en tus altavoces
+      // La copia recibe la partida del otro jugador DIRECTAMENTE (sin pasar por el almacenamiento del navegador, que podía pisarla
+      // con una partida vacía) y nunca guarda nada.
+      const rbytes = remoteSaveB64 ? unb64(remoteSaveB64) : null;
+      const rtype = remoteType | 0 || (rbytes ? (rbytes.length === 0x8000 ? 1 : rbytes.length >= 0x10000 ? 2 : 3) : 0);
+      g.core.attachSaveExportHandler(() => {});
+      g.core.attachSaveImportHandler((name, ok, fail) => {
+        if (String(name).startsWith('TYPE_')) { if (rbytes && rtype) ok(Uint8Array.from([rtype])); else fail(); }
+        else if (rbytes) ok(Uint8Array.from(rbytes)); else fail();
+      });
       g.load(mine.rom()); g.setExternalDriver(true); g.start();
       for (let i = 0; i < 100 && !g.core.getGameName?.(); i++) await new Promise(r => setTimeout(r, 30));   // espera a que el núcleo lea el título del juego
-      await g.deleteSave();
-      if (remoteSaveB64) await g.importCurrentSave(unb64(remoteSaveB64)); else g.restart();
     } catch (e) { cv.remove(); stopLink('No se pudo crear la segunda consola: ' + (e?.message || e)); return; }
+    mine.setSaveOverride(mineBytes, myType);                    // y la propia también, para que ambas consolas carguen por el mismo camino
     mine.setExternalDriver(true);
     const cores = [mine.core, g.core]; const own = [];
     for (const c of cores) { own.push([Object.prototype.hasOwnProperty.call(c, 'audioUnderrunAdjustment'), c.audioUnderrunAdjustment]); c.audioUnderrunAdjustment = function () { this.CPUCyclesTotal = this.CPUCyclesPerIteration | 0; }; c.setIntervalRate(STEP_MS); }
@@ -106,7 +115,7 @@
   function checkInit() {
     if (!N.initOrd || !N.rinit) return;
     const f = a => JSON.stringify(a.map(x => [x.type, x.sh]));
-    N.initMismatch = f(N.initOrd) !== f(N.rinit) ? 'las partidas guardadas de las dos consolas no coinciden' : '';
+    N.initMismatch = f(N.initOrd) !== f(N.rinit) ? 'la copia de la otra partida no coincide' : '';
   }
   function report() {
     return JSON.stringify({ v: (window.ARCADIA_FILES || {})['gba-link-net.js'], ua: navigator.userAgent, role: N.role, rtt: N.rtt, d: N.d, frame: N.frame, stalls: N.stalls,
@@ -174,7 +183,7 @@
     const was = N.active || N.starting || !!N.conn;
     if (N.mine) stopDual();
     try { N.conn?.close(); } catch {} try { N.peer?.destroy(); } catch {}
-    window.__ARC_RTC_BASE = 0; N.rem = {}; N.rx = null; N.rlog = []; N.rinit = null; N.initMismatch = ''; N.hlog = []; N.hs = {}; N.rh = {}; N.desync = 0; N.conn = N.peer = null; N.role = ''; N.code = ''; N.active = false; N.starting = false;
+    window.__ARC_RTC_BASE = 0; N.rem = {}; N.rx = null; N.rxs = {}; N.rlog = []; N.rinit = null; N.initMismatch = ''; N.hlog = []; N.hs = {}; N.rh = {}; N.desync = 0; N.conn = N.peer = null; N.role = ''; N.code = ''; N.active = false; N.starting = false;
     N.status = reason || 'Sin conexión';
     if (was && reason) say(reason);
     render();
@@ -183,30 +192,33 @@
   const CH = 12000;
   function sendInit(withD, rt) {
     const e = eng(); const sv = mySave(); const n = Math.ceil(sv.length / CH);
-    const o = { t: 'init', h: romHash(e.rom()), n }; if (withD) o.d = withD; if (rt) o.rt = rt; send(o);
-    for (let i = 0; i < n; i++) send({ t: 'sv', i, p: sv.slice(i * CH, (i + 1) * CH) });
+    const id = Math.random().toString(36).slice(2, 10);
+    const o = { t: 'init', id, h: romHash(e.rom()), n, ty: (() => { try { return e.core.IOCore.saves.saveType | 0; } catch { return 0; } })() }; if (withD) o.d = withD; if (rt) o.rt = rt; send(o);
+    for (let i = 0; i < n; i++) send({ t: 'sv', id, i, p: sv.slice(i * CH, (i + 1) * CH) });
   }
   function startFromInit(rx) {
     const save = rx.parts.join('');
     if (N.role === 'host') {
       const dly = Math.max(5, Math.min(30, Math.ceil(((N.rtt || 120) / 2 + 45) / 16.6) + 1));
       const rt = Date.now(); window.__ARC_RTC_BASE = rt;
-      sendInit(dly, rt); begin(save, dly).catch(e => stopLink('Error al sincronizar: ' + (e?.message || e)));
-    } else { window.__ARC_RTC_BASE = rx.rt || 0; begin(save, rx.d | 0 || 12).catch(e => stopLink('Error al sincronizar: ' + (e?.message || e))); }
+      sendInit(dly, rt); begin(save, dly, rx.ty).catch(e => stopLink('Error al sincronizar: ' + (e?.message || e)));
+    } else { window.__ARC_RTC_BASE = rx.rt || 0; begin(save, rx.d | 0 || 12, rx.ty).catch(e => stopLink('Error al sincronizar: ' + (e?.message || e))); }
+  }
+  // Los mensajes pueden llegar en otro orden (PeerJS los convierte de forma asíncrona): el trozo de partida y su cabecera se unen por identificador.
+  const rxOf = id => { N.rxs = N.rxs || {}; return N.rxs[id] || (N.rxs[id] = { parts: [], got: 0, meta: null, done: false }); };
+  function tryStart(rx) {
+    if (rx.done || !rx.meta || rx.got < rx.meta.n) return;
+    rx.done = true; startFromInit({ parts: rx.parts, n: rx.meta.n, ty: rx.meta.ty, d: rx.meta.d, rt: rx.meta.rt });
   }
   function onMessage(d) {
     if (!d || typeof d !== 'object') return;
     if (d.t === 'init') {
       const e = eng(); if (!e?.rom?.()) { send({ t: 'bye', why: 'El otro jugador no tiene un juego abierto.' }); return; }
       if (d.h !== romHash(e.rom())) { send({ t: 'bye', why: 'Los dos deben abrir exactamente el mismo juego (.gba).' }); stopLink('Los dos deben abrir exactamente el mismo juego (.gba).'); return; }
-      N.rx = { n: d.n | 0, d: d.d | 0, rt: +d.rt || 0, parts: [], got: 0 };
-      N.status = 'Sincronizando las consolas…'; render();
-      if (!N.rx.n) { const rx = N.rx; N.rx = null; startFromInit(rx); }
+      const rx = rxOf(d.id); rx.meta = { n: d.n | 0, ty: d.ty | 0, d: d.d | 0, rt: +d.rt || 0 };
+      N.status = 'Sincronizando las consolas…'; render(); tryStart(rx);
     }
-    else if (d.t === 'sv' && N.rx) {
-      N.rx.parts[d.i | 0] = String(d.p || ''); N.rx.got++;
-      if (N.rx.got >= N.rx.n) { const rx = N.rx; N.rx = null; startFromInit(rx); }
-    }
+    else if (d.t === 'sv') { const rx = rxOf(d.id); if (rx.parts[d.i | 0] === undefined) { rx.parts[d.i | 0] = String(d.p || ''); rx.got++; } tryStart(rx); }
     else if (d.t === 'h') { N.rh[d.f | 0] = d.h; (N.rlog = N.rlog || []).length < 12 && N.rlog.push([d.f | 0, ...d.h]); checkHash(d.f | 0); }
     else if (d.t === 'ih') { N.rinit = d.i; checkInit(); }
     else if (d.t === 'i') { N.rem[d.f | 0] = d.m | 0; }

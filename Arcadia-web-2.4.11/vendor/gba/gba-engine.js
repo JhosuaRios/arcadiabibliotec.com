@@ -215,7 +215,9 @@
       });
       core.attachPlayStatusHandler(status => { playing = !!status; opts.onStatus?.(playing ? 'play' : 'pause'); });
       const lastSaved = new Map();
+      let saveOverride = null, saveWrites = true;   // cable link: la partida se entrega directamente al núcleo (sin pasar por IndexedDB, que es asíncrono y se pisa)
       core.attachSaveExportHandler((name, data) => {
+        if (!saveWrites) return;
         const key = saveKeyPrefix + name;
         try {
           const copy = Uint8Array.from(data);
@@ -228,6 +230,7 @@
       });
       let detectedType = 0, lastFound = false;
       core.attachSaveImportHandler((name, ok, fail) => {
+        if (saveOverride) { const v = name.startsWith('TYPE_') ? saveOverride.type : saveOverride.save; if (v) ok(v); else fail(); return; }
         saveGet(saveKeyPrefix + name).then(async value => {
           if (!value && legacyPrefix) { const old = await saveGet(legacyPrefix + name); if (old) { await savePut(saveKeyPrefix + name, old); value = old; } }   // migración de partidas guardadas con el formato anterior
           lastFound = !!value; return value ? ok(value) : fail();
@@ -301,6 +304,10 @@
         rom: () => lastRom,
         setExternalDriver(on) { external = !!on; if (external && timer) { clearInterval(timer); timer = 0; cancelAnimationFrame(raf); } },
         audioStream: () => sound.streamOnly(),
+        setSaveOverride(bytes, type) { saveOverride = { save: bytes && bytes.length ? Uint8Array.from(bytes) : null, type: type ? Uint8Array.from([type & 255]) : null }; },
+        clearSaveOverride() { saveOverride = null; },
+        setSaveWrites(on) { saveWrites = !!on; },
+        saveType() { try { return core.IOCore.saves.saveType | 0; } catch { return 0; } },
         async deleteSave() { /* usa la clave del juego actual */ const n = core.getGameName?.(); if (n) await saveDelete(saveKeyPrefix + n); },
         destroy() {
           try { flush(); } catch {}
@@ -315,5 +322,5 @@
     }
   };
   window.ArcadiaGBA = ArcadiaGBA;
-  ArcadiaGBA.version = '2.4.9';
+  ArcadiaGBA.version = '2.4.11';
 })();
